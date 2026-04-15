@@ -25,7 +25,7 @@ arXiv Research Agent/
 │  └─ workflows/    # LangGraph 工作流
 ├─ data/            # SQLite 数据文件
 ├─ .env.example
-├─ demo1.py
+├─ app-run.py
 └─ requirements.txt
 ```
 
