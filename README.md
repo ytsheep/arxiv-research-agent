@@ -290,6 +290,9 @@ Streamlit 前端包含两个主要工作区：
   - 研究摘要报告
   - Tool Trace
   - 论文详情
+<img width="1276" height="564" alt="image" src="https://github.com/user-attachments/assets/ceb55666-337c-4795-a4ec-673fb3a63a10" />
+
+
 
 ### 2. Subscription Console
 
@@ -300,7 +303,7 @@ Streamlit 前端包含两个主要工作区：
 - 删除订阅
 - 手动试跑
 - 查看最近执行记录
-<img width="1340" height="817" alt="屏幕截图 2026-04-15 113257" src="https://github.com/user-attachments/assets/6690fd84-d58e-4b5c-aad2-f91aeb99ff06" />
+<img width="1270" height="737" alt="image" src="https://github.com/user-attachments/assets/7a979a50-5ed2-4c5a-ae09-29d18593771b" />
 
 ---
 
@@ -470,33 +473,12 @@ all:"keyword1" OR all:"keyword2" OR all:"keyword3"
 
 ---
 
-## 适合写进简历 / 面试的亮点
-
-- 从单文件原型重构为 `Streamlit + FastAPI + LangGraph + SQLAlchemy` 的模块化系统
-- 支持 **实时检索 + 持久化订阅 + 自动推送** 的完整闭环
-- 使用 `SQLite` 设计订阅、执行、投递等完整数据模型
-- 引入 **多关键词自动构造 query、跨天去重、并发执行与错误隔离**
-- 同时提供前端交互界面和后端 API，具备较好的产品化与工程化展示价值
-
----
-
 ## 已知说明
 
 - 项目默认依赖 DashScope 兼容接口进行结构化摘要生成
 - 若没有可用的 `DASHSCOPE_API_KEY`，搜索工作流无法完整执行摘要步骤
 - 邮件发送依赖可用 SMTP 账号
 - 飞书通知依赖有效的群机器人 Webhook
-
----
-
-## 后续可扩展方向
-
-- 增加用户系统与登录鉴权
-- 增加订阅标签、分组与搜索
-- 增加推送模板与 Markdown / 卡片消息
-- 接入更多论文源，如 Semantic Scholar、OpenReview
-- 增加论文全文解析与向量检索
-- 增加 Docker 部署与 CI/CD
 
 ---
 
