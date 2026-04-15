@@ -300,6 +300,7 @@ Streamlit 前端包含两个主要工作区：
 - 删除订阅
 - 手动试跑
 - 查看最近执行记录
+<img width="1340" height="817" alt="屏幕截图 2026-04-15 113257" src="https://github.com/user-attachments/assets/6690fd84-d58e-4b5c-aad2-f91aeb99ff06" />
 
 ---
 
