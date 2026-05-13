@@ -1,0 +1,18 @@
+{
+  "arxiv_id": "2601.07504v1",
+  "title": "FROAV: A Framework for RAG Observation and Agent Verification -- Lowering the Barrier to LLM Agent Research",
+  "authors": [
+    "Tzu-Hsuan Lin",
+    "Chih-Hsuan Kao"
+  ],
+  "abstract": "",
+  "categories": [
+    "cs.LG",
+    "cs.SE"
+  ],
+  "published_date": "2026-01-12",
+  "updated_date": "",
+  "arxiv_url": "http://arxiv.org/abs/2601.07504v1",
+  "pdf_url": "https://arxiv.org/pdf/2601.07504v1",
+  "pdf_path": "./data/paper_library\\papers\\undefined\\paper.pdf"
+}
