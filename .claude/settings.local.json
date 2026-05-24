@@ -45,7 +45,8 @@
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('total:', d['total']\\); print\\('traces:', [t['trace_id'] for t in d['traces']]\\)\")",
       "Bash(python -c \"from app.tools.llm_client import llm_client; print\\('provider:', llm_client.provider\\); print\\('available:', llm_client.available\\); print\\('model:', llm_client.model\\)\")",
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\({'llm_model':d['preferences'].get\\('llm_model',''\\),'llm_api_key_set':d['preferences'].get\\('llm_api_key',''\\)},ensure_ascii=False\\)\\)\")",
-      "Bash(python *)"
+      "Bash(python *)",
+      "Bash(pip list *)"
     ],
     "defaultMode": "acceptEdits"
   }

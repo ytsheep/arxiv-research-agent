@@ -1,4 +1,9 @@
-"""Agent Orchestrator: coordinates intent recognition → tool execution → response."""
+"""Agent Orchestrator: coordinates intent recognition → tool execution → response.
+
+Supports two modes:
+- Fixed pipeline (default): deterministic step-by-step flow
+- ReAct Agent (USE_REACT_AGENT=true): LLM-driven tool selection within guardrails
+"""
 
 from app.agent.intent_classifier import classify_intent, normalize_query
 from app.tools.trace_tool import TraceTool
@@ -6,15 +11,39 @@ from app.tools.arxiv_tool import ArxivTool
 from app.tools.rerank_tool import RerankTool
 from app.tools.report_tool import ReportTool
 from app.schemas.chat import ChatResponse, PaperCardItem
+from app.core.config import settings
 from app.core.logging import logger
 
 
 class AgentOrchestrator:
-    def __init__(self):
+    def __init__(self, use_react: bool | None = None):
         self.trace_tool = TraceTool()
         self.arxiv_tool = ArxivTool()
         self.rerank_tool = RerankTool()
         self.report_tool = ReportTool()
+
+        self._use_react = use_react if use_react is not None else settings.use_react_agent
+        self._react_agent = None
+        self._tool_registry = None
+
+        if self._use_react:
+            self._init_react()
+
+    def _init_react(self):
+        """Lazy-init ReAct Agent and registries."""
+        from app.agent.bootstrap import create_tool_registry
+        from app.agent.react_agent import ReactAgent
+
+        self._tool_registry = create_tool_registry()
+        self._react_agent = ReactAgent(
+            tool_registry=self._tool_registry,
+            trace_tool=self.trace_tool,
+        )
+        logger.info("ReAct Agent mode enabled")
+
+    @property
+    def use_react(self) -> bool:
+        return self._use_react and self._react_agent is not None
 
     async def handle_chat(self, message: str, session_id: str) -> ChatResponse:
         trace = self.trace_tool.create(task_type="chat", user_input=message)
@@ -29,13 +58,34 @@ class AgentOrchestrator:
             output_summary=f"intent={intent_result['intent']}, confidence={intent_result['confidence']}",
         )
 
-        # Step 2: Route based on intent
-        if intent_result["intent"] == "paper_search":
+        intent = intent_result["intent"]
+
+        # ── ReAct path ─────────────────────────────────────────────
+        if self.use_react and intent == "paper_search":
+            react_result = await self._react_agent.run(
+                message=message,
+                session_id=session_id,
+                intent=intent,
+            )
+            cards = self._build_paper_cards(
+                react_result.get("papers", []),
+                intent_result.get("entities", {}).get("topic", ""),
+            )
+            return ChatResponse(
+                success=react_result.get("success", False),
+                type=react_result.get("type", "paper_search_result"),
+                trace_id=react_result.get("trace_id", trace.trace_id),
+                message=react_result.get("message", ""),
+                papers=cards,
+            )
+
+        # ── Fixed pipeline path (default) ──────────────────────────
+        if intent == "paper_search":
             result = await self._paper_search_flow(intent_result, trace)
             await self.trace_tool.complete(trace.trace_id, status="success", trace=trace)
             return result
 
-        elif intent_result["intent"] == "general_chat":
+        elif intent == "general_chat":
             await self.trace_tool.complete(trace.trace_id, status="success", trace=trace)
             return ChatResponse(
                 success=True,

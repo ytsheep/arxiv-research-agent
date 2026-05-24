@@ -20,6 +20,8 @@ class Settings(BaseSettings):
 
     feishu_default_webhook: str = ""
 
+    use_react_agent: bool = False  # Enable ReAct Agent for chat routing
+
     class Config:
         env_file = ".env"
 

@@ -53,6 +53,14 @@ function stepColor(status: string): string {
               {{ step.status === 'success' ? '成功' : step.status === 'failed' ? '失败' : step.status }}
             </el-tag>
           </div>
+          <div v-if="step.toolName && step.toolName !== step.stepName" class="step-action">
+            <span class="info-label">Action：</span>
+            <el-tag size="small" type="warning" :disable-transitions="true">{{ step.toolName }}</el-tag>
+          </div>
+          <div v-if="step.reasoningSummary" class="step-reasoning">
+            <el-icon :size="14"><component :is="'More'" /></el-icon>
+            <span>{{ step.reasoningSummary }}</span>
+          </div>
           <div v-if="step.inputSummary" class="step-info">
             <span class="info-label">输入：</span>{{ step.inputSummary }}
           </div>
@@ -132,6 +140,26 @@ function stepColor(status: string): string {
   font-size: 13px;
   color: #ddd;
   font-weight: 500;
+}
+.step-action {
+  font-size: 12px;
+  color: #e6a23c;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.step-reasoning {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  font-size: 12px;
+  color: #67c23a;
+  margin-top: 4px;
+  padding: 4px 8px;
+  background: rgba(103, 194, 58, 0.08);
+  border-radius: 4px;
+  border-left: 2px solid #67c23a;
 }
 .step-info {
   font-size: 12px;

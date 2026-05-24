@@ -7,9 +7,9 @@
 项目当前处于：
 
 ```text
-阶段：Phase 5 完成，Phase 6 完善中
+阶段：Phase 6 完成，架构升级完成
 状态：开发中
-版本：v0.6.0
+版本：v0.7.0
 ```
 
 ---
@@ -39,6 +39,11 @@
 16. 多 LLM Provider 支持 (DeepSeek / Qwen / OpenAI) ✅ Phase 6
 17. Embedding Rerank (语义匹配) ✅ Phase 6
 18. DeepSeek V4 Flash 集成 ✅ Phase 6
+19. Tool Registry (5 工具注册, 权限/白名单) ✅ Phase 7
+20. Controlled ReAct Agent (LLM 驱动工具选择) ✅ Phase 7
+21. Skill Registry (Skill-as-Tool 模式) ✅ Phase 7
+22. MCP Server (JSON-RPC over stdio) ✅ Phase 7
+23. Trace 推理摘要 (reasoning_summary) ✅ Phase 7
 ```
 
 ---
@@ -255,7 +260,115 @@ Rerank: 语义=TF-IDF, 摘要=LLM
 
 ---
 
-## 10. 已知问题
+## 10. Phase 7: Controlled ReAct Agent 架构升级 - 已完成
+
+### 10.1 已完成任务
+
+```text
+[x] Tool Registry (tool_registry.py + tool_schemas.py) — 统一工具注册/权限/白名单
+[x] ToolDefinition dataclass (name, schema, handler, allowed_intents, permission)
+[x] 注册 5 个 read-only 工具 (arxiv_search, paper_rerank, paper_generate_card_summary, library_search_papers, trace_query)
+[x] LLM Client 升级 (chat_with_tools + plan_with_tools)
+[x] ReAct Agent MVP (react_agent.py) — 受控 ReAct 循环，max_steps=6
+[x] AgentState 状态管理 (observations 积累，state_summary 压缩)
+[x] Business rule enforcement (搜索阶段禁止全文解析，收藏/解析分离等)
+[x] Skill Registry (skill_registry.py) — Skill-as-Tool 模式
+[x] paper_search_card_skill — 固定流程包装 (intent→normalize→search→rerank→summary)
+[x] trace_diagnosis_skill — 任务诊断 (query→get→diagnose)
+[x] Orchestrator 升级 — USE_REACT_AGENT 特性开关，默认 false 保持向后兼容
+[x] Trace 模型升级 — TaskStep 新增 reasoning_summary 字段
+[x] TraceTool 升级 — log_step/get/query 支持 reasoning_summary
+[x] 前端 TraceStep 类型更新 — 新增 reasoningSummary
+[x] TraceTimeline 组件升级 — 展示 ReAct reasoning_summary + action + observation
+[x] MCP Server — 标准 MCP 协议 (JSON-RPC over stdio)
+[x] MCP Tools — arxiv.search_papers, library.search_papers, library.get_report, trace.query, trace.get
+[x] MCP Resources — library://paper/{id}/report|metadata|parsed, trace://recent|failed|{id}
+[x] MCP Prompts — paper/card_summary_zh, paper/deep_report_zh
+[x] 数据库迁移 — task_steps 表新增 reasoning_summary 列
+```
+
+### 10.2 新增/修改文件 (Phase 7)
+
+```
+backend/
+  app/
+    agent/
+      tool_schemas.py              — 新增：ToolDefinition + OpenAI function schemas
+      tool_registry.py             — 新增：ToolRegistry (注册/校验/调用/权限/业务规则)
+      bootstrap.py                 — 新增：创建并注册所有工具实例
+      react_agent.py               — 新增：Controlled ReAct Agent (max_steps=6, 白名单检查)
+      skill_registry.py            — 新增：SkillRegistry (Skill-as-Tool 包装)
+      skills/
+        __init__.py                — 新增
+        paper_search_card_skill.py — 新增：论文搜索固定流程 Skill
+        trace_diagnosis_skill.py   — 新增：任务诊断 Skill
+      orchestrator.py              — 修改：集成 ReAct Agent，USE_REACT_AGENT 开关
+    tools/
+      llm_client.py                — 修改：新增 chat_with_tools() + plan_with_tools()
+      trace_tool.py                — 修改：log_step/get 支持 reasoning_summary
+    models/
+      trace.py                     — 修改：TaskStep 新增 reasoning_summary 列
+    core/
+      config.py                    — 修改：新增 use_react_agent 配置项
+  mcp_server/                      — 新增：MCP Server 目录
+    server.py                      — MCP Server 入口 (JSON-RPC over stdio)
+    tools/
+      arxiv_tools.py               — arXiv 搜索工具
+      library_tools.py             — 本地论文库工具
+      trace_tools.py               — Trace 查询工具
+    resources/
+      library_resources.py         — library:// paper resources
+      trace_resources.py           — trace:// resources
+    prompts/
+      paper_prompts.py             — paper/ prompt templates
+
+frontend/
+  src/
+    types/
+      trace.ts                     — 修改：TraceStep 新增 reasoningSummary
+    utils/
+      formatKeys.ts                — 修改：新增 reasoning_summary 映射
+    components/trace/
+      TraceTimeline.vue            — 修改：展示 ReAct reasoning/action/observation
+```
+
+### 10.3 架构变化
+
+```text
+升级前：
+  Vue3 Frontend → FastAPI → AgentOrchestrator (固定流程)
+                              ↓
+                           直接调用 Tool
+
+升级后：
+  Vue3 Frontend → FastAPI → AgentOrchestrator
+                              ├─ 固定流程 (use_react=false, 默认)
+                              └─ ReAct Agent (use_react=true)
+                                   ↓
+                              Tool Registry (白名单/权限/业务规则)
+                                   ↓
+                              Tool Layer (ArxivTool, RerankTool, ...)
+                                   
+  MCP Client (Claude/Cursor) → MCP Server (JSON-RPC over stdio)
+                                   ↓
+                              同一套 Tool/Service 层
+```
+
+### 10.4 安全机制
+
+| 机制 | 说明 |
+|------|------|
+| Tool Registry | 所有工具调用必须通过注册表，白名单校验 |
+| Permission Levels | read_only / write_safe / write_dangerous / expensive / external_send |
+| Business Rules | 搜索阶段禁止全文解析，收藏/解析分离，删除默认 soft |
+| max_steps=6 | ReAct 循环步数上限，防止失控 |
+| Trace-first | 每一步记录 reasoning_summary + action + observation |
+| 敏感信息保护 | trace 不记录 API Key/webhook 明文/完整 prompt |
+| Feature Flag | USE_REACT_AGENT=false 默认，不影响现有功能 |
+
+---
+
+## 11. 已知问题
 
 1. **Semantic Embedding**: DeepSeek 不支持 /embeddings API，rerank 使用 TF-IDF（效果仍优于纯关键词）。切换到 OpenAI 可启用 Embedding API。
 2. **PDF 解析质量**: 章节识别基于正则，多栏/复杂格式 PDF 可能解析不完整。
@@ -263,16 +376,40 @@ Rerank: 语义=TF-IDF, 摘要=LLM
 
 ---
 
-## 11. 下一步计划
+## 12. 下一步计划
 
-1. **全库问答 RAG**: 基于已收藏论文的全文检索问答
-2. **多论文综述生成**: 基于多篇相关论文自动生成综述
-3. **Zotero/Notion 同步**: 论文库导出到第三方工具
-4. **Anthropic Claude 支持**: 非 OpenAI-compatible 格式适配
+1. **启用 ReAct Agent**: 设置 `USE_REACT_AGENT=true` 测试 ReAct 路径
+2. **注册更多工具**: 将 write_safe/expensive 工具注册到 Tool Registry（第二批）
+3. **全库问答 RAG**: 基于已收藏论文的全文检索问答
+4. **多论文综述生成**: 基于多篇相关论文自动生成综述
+5. **Zotero/Notion 同步**: 论文库导出到第三方工具
 
 ---
 
-## 11. 如何运行
+## 13. MCP Server 使用说明
+
+启动 MCP Server：
+```bash
+cd backend
+python -m mcp_server.server
+```
+
+配置 Claude Desktop / Cursor 的 MCP：
+```json
+{
+  "mcpServers": {
+    "arxiv-paper-agent": {
+      "command": "python",
+      "args": ["-m", "mcp_server.server"],
+      "cwd": "backend"
+    }
+  }
+}
+```
+
+---
+
+## 14. 如何运行
 
 ### Backend
 ```bash

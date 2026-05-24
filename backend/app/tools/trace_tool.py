@@ -62,6 +62,7 @@ class TraceTool:
         trace_id: str,
         step_name: str,
         tool_name: str | None = None,
+        reasoning_summary: str = "",
         input_summary: str = "",
         output_summary: str = "",
         status: str = "success",
@@ -72,6 +73,7 @@ class TraceTool:
         step = {
             "step_name": step_name,
             "tool_name": tool_name or step_name,
+            "reasoning_summary": reasoning_summary,
             "input_summary": input_summary,
             "output_summary": output_summary,
             "status": status,
@@ -86,6 +88,7 @@ class TraceTool:
                     trace_id=trace_id,
                     step_name=step_name,
                     tool_name=tool_name or step_name,
+                    reasoning_summary=reasoning_summary,
                     input_summary=input_summary,
                     output_summary=output_summary,
                     status=status,
@@ -187,6 +190,7 @@ class TraceTool:
                         {
                             "step_name": s.step_name,
                             "tool_name": s.tool_name,
+                            "reasoning_summary": s.reasoning_summary or "",
                             "input_summary": s.input_summary or "",
                             "output_summary": s.output_summary or "",
                             "status": s.status,

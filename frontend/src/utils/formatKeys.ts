@@ -21,6 +21,7 @@ const SNAKE_TO_CAMEL_MAP: Record<string, string> = {
   error_code: 'errorCode',
   step_name: 'stepName',
   tool_name: 'toolName',
+  reasoning_summary: 'reasoningSummary',
   input_summary: 'inputSummary',
   output_summary: 'outputSummary',
   candidate_k: 'candidateK',

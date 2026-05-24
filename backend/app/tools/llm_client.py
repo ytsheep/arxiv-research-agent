@@ -174,6 +174,138 @@ class LLMClient:
             logger.error(f"Embedding API request failed ({self._provider}): {e}")
             return {"success": False, "embeddings": [], "error": str(e)}
 
+    async def chat_with_tools(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        model: str = "",
+        temperature: float = 0.3,
+        max_tokens: int = 2048,
+    ) -> dict:
+        """Send a chat completion request with tool/function definitions.
+        Returns tool_calls from the response, or a text response if no tool is called."""
+        if not self._available:
+            return {"success": False, "content": "", "tool_calls": [], "error": "LLM not configured"}
+
+        model_name = model or self._default_model
+
+        payload = {
+            "model": model_name,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "tools": tools,
+        }
+
+        try:
+            client = await self._get_client()
+            response = await client.post(
+                f"{self._base_url}/chat/completions",
+                json=payload,
+                headers={
+                    self._auth_header: f"{self._auth_prefix}{settings.llm_api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            choice = data["choices"][0]
+            message = choice.get("message", {})
+
+            tool_calls = message.get("tool_calls", [])
+            content = message.get("content", "")
+
+            return {
+                "success": True,
+                "content": content,
+                "tool_calls": tool_calls,
+                "error": None,
+            }
+
+        except httpx.HTTPError as e:
+            logger.error(f"LLM tool-calling request failed ({self._provider}): {e}")
+            return {"success": False, "content": "", "tool_calls": [], "error": str(e)}
+        except (KeyError, IndexError) as e:
+            logger.error(f"LLM tool-calling response parse error: {e}")
+            return {"success": False, "content": "", "tool_calls": [], "error": str(e)}
+
+    async def plan_with_tools(
+        self,
+        user_message: str,
+        state_summary: str,
+        tools: list[dict],
+        model: str = "",
+    ) -> dict:
+        """Plan the next ReAct step. Returns a structured decision:
+        {"reasoning_summary": str, "action": str, "arguments": dict}
+
+        'action' is either a tool name or 'final_answer'."""
+        if not self._available:
+            return {
+                "success": False,
+                "reasoning_summary": "LLM not available, cannot plan",
+                "action": "final_answer",
+                "arguments": {},
+                "error": "LLM not configured",
+            }
+
+        tool_descriptions = []
+        for t in tools:
+            func = t.get("function", {})
+            tool_descriptions.append(
+                f"- {func.get('name', '')}: {func.get('description', '')}"
+            )
+
+        system_prompt = f"""You are a controlled ReAct Agent for an arXiv paper assistant.
+
+You must decide the next action to take based on the user's request and the current state. Output a JSON object with your decision.
+
+Available tools:
+{chr(10).join(tool_descriptions) if tool_descriptions else '- None (only final_answer available)'}
+
+Rules:
+1. Choose ONE action from the available tools, or use "final_answer" when the task is complete.
+2. Provide a brief reasoning_summary (one sentence in Chinese).
+3. Only use tools listed above. Do not invent tools.
+4. Do not call expensive tools (parsing, downloading) during search.
+5. If the task is simple, prefer final_answer.
+6. max_steps per task is 6.
+
+Current state: {state_summary if state_summary else "Initial step"}
+
+Output exactly this JSON (no extra text):
+{{"reasoning_summary": "...", "action": "tool_name or final_answer", "arguments": {{...}}}}"""
+
+        result = await self.chat_json(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            model=model,
+            temperature=0.2,
+            max_tokens=1024,
+        )
+
+        if result["success"] and isinstance(result["content"], dict):
+            data = result["content"]
+            return {
+                "success": True,
+                "reasoning_summary": data.get("reasoning_summary", ""),
+                "action": data.get("action", "final_answer"),
+                "arguments": data.get("arguments", {}),
+                "error": None,
+            }
+
+        # Fallback: return final_answer
+        return {
+            "success": False,
+            "reasoning_summary": "Failed to plan, returning final answer",
+            "action": "final_answer",
+            "arguments": {},
+            "error": result.get("error", "plan_with_tools failed"),
+        }
+
     async def close(self):
         if self._client:
             await self._client.aclose()

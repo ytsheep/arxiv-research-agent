@@ -31,6 +31,7 @@ class TaskStep(Base):
     trace_id = Column(String, nullable=False)
     step_name = Column(String, nullable=False)
     tool_name = Column(String)
+    reasoning_summary = Column(Text)
     input_summary = Column(Text)
     output_summary = Column(Text)
     status = Column(String)

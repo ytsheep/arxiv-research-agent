@@ -1,6 +1,7 @@
 export interface TraceStep {
   stepName: string
   toolName: string | null
+  reasoningSummary: string
   inputSummary: string
   outputSummary: string
   status: string
