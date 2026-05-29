@@ -22,6 +22,28 @@ function stepColor(status: string): string {
     default: return '#409eff'
   }
 }
+
+function agentTagType(agent: string): string {
+  switch (agent) {
+    case 'supervisor': return 'primary'
+    case 'executor': return 'success'
+    case 'reviewer': return 'warning'
+    default: return 'info'
+  }
+}
+
+function formatStepType(stepType: string): string {
+  const map: Record<string, string> = {
+    planning: '规划',
+    dispatching: '分发',
+    execution: '执行',
+    review: '审核',
+    workflow_review: '工作流审核',
+    composition: '合成',
+    error: '错误',
+  }
+  return map[stepType] || stepType
+}
 </script>
 
 <template>
@@ -56,6 +78,10 @@ function stepColor(status: string): string {
           <div v-if="step.toolName && step.toolName !== step.stepName" class="step-action">
             <span class="info-label">Action：</span>
             <el-tag size="small" type="warning" :disable-transitions="true">{{ step.toolName }}</el-tag>
+          </div>
+          <div v-if="step.agentName" class="step-agent">
+            <el-tag size="small" :type="agentTagType(step.agentName)" :disable-transitions="true">{{ step.agentName }}</el-tag>
+            <span v-if="step.stepType" class="step-type-text">{{ formatStepType(step.stepType) }}</span>
           </div>
           <div v-if="step.reasoningSummary" class="step-reasoning">
             <el-icon :size="14"><component :is="'More'" /></el-icon>
@@ -148,6 +174,16 @@ function stepColor(status: string): string {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+.step-agent {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+.step-type-text {
+  font-size: 11px;
+  color: #888;
 }
 .step-reasoning {
   display: flex;

@@ -26,6 +26,16 @@ class ArxivTool:
         date_to: str | None = None,
     ) -> dict:
         """Search arXiv for papers matching the query."""
+        # Check Redis cache
+        try:
+            from app.services.cache_service import cache_service
+            cached = await cache_service.get_arxiv_search(query, max_results)
+            if cached is not None:
+                logger.info(f"arXiv cache HIT for query: {query[:80]}")
+                return {"success": True, "papers": cached, "error": None, "cache_hit": True}
+        except Exception:
+            pass
+
         # Build search query with categories
         search_query_parts = [query]
 
@@ -50,7 +60,16 @@ class ArxivTool:
             papers = self._parse_atom(response.text)
             logger.info(f"arXiv search returned {len(papers)} papers for query: {query[:80]}")
 
-            return {"success": True, "papers": papers, "error": None}
+            # Cache write (fire-and-forget)
+            if papers:
+                try:
+                    from app.services.cache_service import cache_service
+                    import asyncio
+                    asyncio.ensure_future(cache_service.cache_arxiv_search(query, max_results, papers))
+                except Exception:
+                    pass
+
+            return {"success": True, "papers": papers, "error": None, "cache_hit": False}
 
         except httpx.HTTPError as e:
             logger.error(f"arXiv API request failed: {e}")

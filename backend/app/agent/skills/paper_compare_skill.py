@@ -1,30 +1,40 @@
-"""Paper Compare Skill: load multiple papers and compare across dimensions."""
+"""Paper Compare Skill: load multiple papers and compare across dimensions.
+
+Supports two input modes:
+  - arxiv_ids: compare papers already in the local library
+  - papers: compare freshly searched paper cards (title/abstract/summary/core_problem/method/result)
+When local reports exist, the skill enriches comparison with report snippets.
+"""
 
 from app.tools.library_tool import LibraryTool
 from app.tools.llm_client import llm_client
 from app.tools.trace_tool import TraceTool
-from app.services.memory_service import ShortTermMemoryService
 from app.core.logging import logger
 
 PAPER_COMPARE_SKILL_SCHEMA = {
     "type": "function",
     "function": {
         "name": "paper_compare_skill",
-        "description": "Compare multiple papers across problem, method, experiment, result, limitation, and value dimensions. Use this when the user wants to compare or contrast papers.",
+        "description": "Compare multiple papers across problem, method, experiment, result, limitation, and value dimensions. Use this when the user wants to compare or contrast papers. Supports both arxiv_ids (for library papers) and papers (for freshly searched paper cards).",
         "parameters": {
             "type": "object",
             "properties": {
                 "arxiv_ids": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "List of arXiv paper IDs to compare",
+                    "description": "List of arXiv paper IDs to compare (for papers already in local library)",
+                },
+                "papers": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": "List of paper dicts with summary, core_problem, method, result fields (for freshly searched papers not yet in library)",
                 },
                 "user_message": {
                     "type": "string",
                     "description": "The original user message for context",
                 },
             },
-            "required": ["arxiv_ids", "user_message"],
+            "required": ["user_message"],
         },
     },
 }
@@ -32,16 +42,59 @@ PAPER_COMPARE_SKILL_SCHEMA = {
 
 async def paper_compare_skill(
     arxiv_ids: list[str] | None = None,
+    papers: list[dict] | None = None,
     user_message: str = "",
 ) -> dict:
     arxiv_ids = arxiv_ids or []
+    papers = papers or []
     trace_tool = TraceTool()
     library_tool = LibraryTool()
 
     trace = trace_tool.create(task_type="paper_compare", user_input=user_message)
-    logger.info(f"[Skill:paper_compare trace={trace.trace_id}] ids={arxiv_ids}")
+    logger.info(f"[Skill:paper_compare trace={trace.trace_id}] ids={arxiv_ids}, cards={len(papers)}")
 
-    if len(arxiv_ids) < 2:
+    # Build papers_data from the available inputs
+    papers_data = []
+
+    if arxiv_ids:
+        for arxiv_id in arxiv_ids:
+            paper_result = await library_tool.get_paper(arxiv_id)
+            if paper_result.get("success"):
+                paper_info = paper_result.get("paper", {})
+                report_result = await library_tool.get_report(arxiv_id)
+                paper_info["report_markdown"] = report_result.get("report_markdown", "")
+                paper_info["has_report"] = report_result.get("success", False)
+                papers_data.append(paper_info)
+            else:
+                papers_data.append({
+                    "arxiv_id": arxiv_id,
+                    "title": arxiv_id,
+                    "report_markdown": "",
+                    "has_report": False,
+                })
+
+    if papers:
+        seen_ids = {p.get("arxiv_id", "") for p in papers_data}
+        for paper in papers:
+            pid = paper.get("arxiv_id", "")
+            if pid in seen_ids:
+                continue
+            papers_data.append({
+                "arxiv_id": pid,
+                "title": paper.get("title", pid),
+                "summary": paper.get("summary", paper.get("abstract", "")),
+                "core_problem": paper.get("core_problem", ""),
+                "method": paper.get("method", ""),
+                "result": paper.get("result", ""),
+                "report_markdown": "",
+                "has_report": False,
+                "authors": paper.get("authors", []),
+                "categories": paper.get("categories", []),
+                "final_score": paper.get("final_score", paper.get("score")),
+            })
+            seen_ids.add(pid)
+
+    if len(papers_data) < 2:
         await trace_tool.complete(trace.trace_id, status="failed",
                                    error_message="Need at least 2 papers to compare", trace=trace)
         return {
@@ -50,28 +103,10 @@ async def paper_compare_skill(
             "message": "需要至少 2 篇论文才能进行对比。",
         }
 
-    # Load paper data
-    papers_data = []
-    for arxiv_id in arxiv_ids:
-        paper_result = await library_tool.get_paper(arxiv_id)
-        if paper_result.get("success"):
-            paper_info = paper_result.get("paper", {})
-            report_result = await library_tool.get_report(arxiv_id)
-            paper_info["report_markdown"] = report_result.get("report_markdown", "")
-            paper_info["has_report"] = report_result.get("success", False)
-            papers_data.append(paper_info)
-        else:
-            papers_data.append({
-                "arxiv_id": arxiv_id,
-                "title": arxiv_id,
-                "report_markdown": "",
-                "has_report": False,
-            })
-
     await trace_tool.log_step(
         trace_id=trace.trace_id,
         step_name="resolve_papers",
-        input_summary=f"arxiv_ids={arxiv_ids}",
+        input_summary=f"arxiv_ids={arxiv_ids}, cards={len(papers)}",
         output_summary=f"loaded={len(papers_data)} papers, with_report={sum(1 for p in papers_data if p.get('has_report'))}",
     )
 

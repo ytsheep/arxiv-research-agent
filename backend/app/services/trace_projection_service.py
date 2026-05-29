@@ -56,6 +56,7 @@ class TraceProjectionService:
             if not step_name or step_name == last_step_name:
                 continue
             last_step_name = step_name
+            agent_name, step_type = self._agent_info(step_name)
             steps.append({
                 "step_name": step_name,
                 "tool_name": values.get("selected_tool", "") or step_name,
@@ -67,8 +68,24 @@ class TraceProjectionService:
                 "ended_at": snapshot.created_at or "",
                 "duration_ms": 0,
                 "error_message": values.get("error", ""),
+                "agent_name": agent_name,
+                "step_type": step_type,
             })
         return steps
+
+    @staticmethod
+    def _agent_info(node_name: str) -> tuple[str, str]:
+        agent_map = {
+            "supervisor_init": ("supervisor", "planning"),
+            "supervisor_plan": ("supervisor", "planning"),
+            "supervisor_dispatch": ("supervisor", "dispatching"),
+            "executor_run": ("executor", "execution"),
+            "reviewer_check": ("reviewer", "review"),
+            "workflow_review": ("reviewer", "workflow_review"),
+            "composer_build": ("reviewer", "composition"),
+            "error_handler": ("supervisor", "error"),
+        }
+        return agent_map.get(node_name, ("", ""))
 
     def _input_summary(self, values: dict[str, Any]) -> str:
         parts = []
@@ -104,5 +121,14 @@ class TraceProjectionService:
                 counts.append(f"message={obs.get('message')[:160]}")
         if values.get("final_response"):
             counts.append(f"response_type={values['final_response'].get('type', '')}")
+        # Multi-agent fields
+        if values.get("task_plan"):
+            counts.append(f"plan_tasks={len(values.get('task_plan', []))}")
+        if values.get("current_task_id"):
+            counts.append(f"current_task={values.get('current_task_id')}")
+        if values.get("last_review_decision"):
+            counts.append(f"review={values.get('last_review_decision')}")
+        if values.get("task_outputs"):
+            counts.append(f"task_outputs={list(values.get('task_outputs', {}).keys())}")
 
         return "; ".join([item for item in [base, *counts] if item])

@@ -9,6 +9,9 @@ export interface TraceStep {
   endedAt: string
   durationMs: number | null
   errorMessage: string
+  agentName?: string
+  stepType?: string
+  messageType?: string
 }
 
 export interface TraceItem {

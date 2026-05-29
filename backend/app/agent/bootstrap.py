@@ -58,6 +58,10 @@ from app.agent.skills.memory_profile_skill import (
     MEMORY_PROFILE_SKILL_SCHEMA,
     memory_profile_skill,
 )
+from app.agent.skills.paper_select_best_skill import (
+    PAPER_SELECT_BEST_SKILL_SCHEMA,
+    paper_select_best_skill,
+)
 
 
 def create_tool_registry() -> ToolRegistry:
@@ -351,6 +355,15 @@ def create_tool_registry() -> ToolRegistry:
         handler=memory_profile_skill,
         allowed_intents=["memory_profile", "*"],
         permission="write_safe",
+    ))
+
+    registry.register(ToolDefinition(
+        name="paper_select_best_skill",
+        description="Select the best paper from candidates based on comparison, user preferences, scores, and task goal",
+        schema=PAPER_SELECT_BEST_SKILL_SCHEMA,
+        handler=paper_select_best_skill,
+        allowed_intents=["paper_compare", "*"],
+        permission="read_only",
     ))
 
     return registry

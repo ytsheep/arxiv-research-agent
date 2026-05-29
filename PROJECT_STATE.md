@@ -7,9 +7,9 @@
 项目当前处于：
 
 ```text
-阶段：Phase 10 完成，Research Workflow Agent Expansion 完成
+阶段：Phase 11 规划中，Multi-Agent Workflow + Redis Cache 待实现
 状态：开发中
-版本：v0.10.0
+版本：v0.11.0-planned
 ```
 
 ---
@@ -46,7 +46,8 @@
 23. Trace 推理摘要 (reasoning_summary) ✅ Phase 7
 24. LangGraph StateGraph 编排层 ✅ Phase 8
 25. Four-layer Memory System ✅ Phase 9
-26. Research Workflow Agent Expansion (7 Skills, 21 Tools, Intent Router, Query Rewrite) ✅ Phase 10
+26. Research Workflow Agent Expansion (7 Skills, 21 Agent-callable capabilities, Intent Router, Query Rewrite) ✅ Phase 10
+27. Multi-Agent Workflow + Redis Cache 设计文档 ✅ Phase 11 planning
 ```
 
 ---
@@ -382,10 +383,13 @@ frontend/
 
 ## 12. 下一步计划
 
-1. **全库问答 RAG**: 基于已收藏论文的全文检索问答
-2. **多论文综述 LLM 增强**: 将 literature_survey_skill 的模板输出升级为 LLM 深度综述
-3. **前端适配新响应类型**: 前端渲染 deep_read_result, comparison_result, survey_result, memory_profile_result, trace_diagnosis_result
-4. **Zotero/Notion 同步**: 论文库导出到第三方工具
+1. **Phase 11 Multi-Agent Workflow**: 支持复合任务 search -> compare -> select_best -> collect -> deep_read
+2. **Redis Cache**: 增加 arXiv 搜索缓存、Embedding/Rerank 缓存、Workflow 轻量状态缓存
+3. **paper_select_best_skill**: 基于对比结果和用户偏好选择最适合的论文
+4. **paper_compare_skill 输入增强**: 支持直接消费 freshly searched papers
+5. **前端适配新响应类型**: 前端渲染 deep_read_result, comparison_result, survey_result, memory_profile_result, trace_diagnosis_result
+6. **全库问答 RAG**: 基于已收藏论文的全文检索问答
+7. **Zotero/Notion 同步**: 论文库导出到第三方工具
 
 ---
 
@@ -568,7 +572,7 @@ completed
 [x] 新增 5 个 Skill 文件: paper_deep_read_skill, paper_compare_skill, literature_survey_skill, interest_recommendation_skill, memory_profile_skill
 [x] 注册 trace_diagnosis_skill 到 Tool Registry (之前已实现但未注册)
 [x] 新增 9 个 Tool Schema: library_get_paper, library_get_report, paper_collect, paper_parse_full_text, paper_generate_deep_report, semantic_memory_search, user_preference_get, user_preference_update, trace_get
-[x] Tool Registry 从 6 个工具扩展到 21 个工具 (6 Skill + 15 Tool)
+[x] Tool Registry 注册 21 个 Agent 可调用能力 (7 Skill + 14 Atomic Tool)
 [x] 权限分层: read_only(11), write_safe(3), expensive(4), external_send(0), write_dangerous(0)
 [x] 新增 Intent 关键词规则: paper_deep_read, paper_compare, literature_survey, interest_recommendation, memory_profile, trace_diagnosis
 [x] State 新增 11 个字段: original_query, rewritten_query, query_rewrite_source, query_filters, selected_skill, slots, needs_clarification, clarification_question, report_markdown, comparison, survey_markdown
@@ -604,7 +608,7 @@ backend/app/schemas/
 ### 17.4 Tool Registry 全景 (21 tools)
 
 ```
-Skills (6):
+Skills (7):
   paper_search_card_skill          read_only
   paper_deep_read_skill            expensive
   paper_compare_skill              read_only
@@ -613,7 +617,7 @@ Skills (6):
   memory_profile_skill             write_safe
   trace_diagnosis_skill            read_only
 
-Atomic Tools (15):
+Atomic Tools (14):
   arxiv_search                     read_only
   paper_rerank                     read_only
   paper_generate_card_summary      read_only
@@ -662,4 +666,306 @@ NOT registered (manual UI only):
 [x] Subscriptions API 正常
 [x] 订阅/通知工具未注册到 Tool Registry ✓ (安全要求)
 [x] BUSINESS_RULES 禁止 paper_search/literature_survey/paper_compare 调用 expensive 工具 ✓
+```
+
+---
+
+## 18. Phase 11: Multi-Agent Workflow + Redis Cache - 已完成
+
+### 18.1 Status
+
+```text
+completed
+```
+
+### 18.2 目标
+
+在现有 LangGraphAgentRunner、Skill/Tool Registry、Memory、Trace、MCP 基础上，新增一个轻量多 Agent 工作流，用于处理一句话中包含多个依赖动作的复杂科研任务。
+
+目标示例：
+
+```text
+帮我找两篇 RAG 相关论文，并且对比两论文的优缺点，最后把好的那篇收藏，并解析
+```
+
+期望执行链路：
+
+```text
+search_papers
+-> compare_papers
+-> select_best_paper
+-> collect_paper
+-> deep_read_paper
+-> final_summary
+```
+
+### 18.3 设计原则
+
+```text
+1. 不删除现有 LangGraphAgentRunner，新增 MultiAgentGraphRunner。
+2. 简单任务继续走现有图，复合任务才走多 Agent 图。
+3. Supervisor 只规划和调度，不直接调用工具。
+4. Executor 只执行单个子任务，不做全局规划，不再嵌套自由 ReAct。
+5. Reviewer 只验收任务完成度和输出质量，不调用业务工具。
+6. Message Bus 第一版使用 WorkflowState.message_history，不引入 Kafka/RabbitMQ。
+7. LangGraph Checkpointer 保存完整 WorkflowState，是状态事实来源。
+8. Redis 只做缓存和轻量状态投影，不替代 Checkpointer、SQLite、文件系统。
+```
+
+### 18.4 待新增文件
+
+```text
+backend/app/agent/
+  multi_agent_runner.py
+  workflow_state.py
+  message_schema.py
+  message_bus.py
+
+backend/app/agent/supervisor/
+  planner.py
+  dispatcher.py
+  prompts.py
+
+backend/app/agent/executor/
+  executor_agent.py
+  execution_map.py
+  input_resolver.py
+
+backend/app/agent/reviewer/
+  reviewer_agent.py
+  completion_checker.py
+  final_composer.py
+
+backend/app/services/
+  cache_service.py
+
+backend/app/core/
+  redis.py
+```
+
+### 18.5 待修改文件
+
+```text
+backend/app/agent/orchestrator.py
+backend/app/agent/bootstrap.py
+backend/app/agent/tool_schemas.py
+backend/app/agent/skills/paper_compare_skill.py
+backend/app/services/trace_projection_service.py
+backend/app/core/config.py
+backend/requirements.txt
+frontend/src/types/trace.ts
+frontend/src/components/trace/TraceTimeline.vue
+```
+
+### 18.6 新增 Skill
+
+```text
+paper_select_best_skill
+```
+
+职责：
+
+```text
+基于候选论文、论文对比结果、用户长期偏好和用户任务目标，选择最适合的一篇论文。
+```
+
+输入：
+
+```text
+papers
+comparison
+user_preferences
+user_message
+```
+
+输出：
+
+```text
+selected_paper
+selection_reason
+tradeoff_summary
+```
+
+要求：
+
+```text
+LLM 可用时使用 LLM 判断。
+LLM 不可用时使用规则兜底，例如 rerank_score、偏好主题匹配、发布时间、summary/core_problem/method 信息完整度。
+```
+
+### 18.7 需要增强的现有 Skill
+
+```text
+paper_compare_skill
+```
+
+增强要求：
+
+```text
+1. 支持 arxiv_ids 输入，用于本地库已有论文对比。
+2. 支持 papers 输入，用于刚搜索出来但尚未收藏的论文对比。
+3. 本地 report 存在时可补充 report 内容。
+4. 本地 report 不存在时，必须能基于 title/abstract/summary/core_problem/method/result 做卡片级对比。
+```
+
+### 18.8 Multi-Agent WorkflowState
+
+新增 WorkflowState，用于 Checkpointer 保存完整多 Agent 状态：
+
+```text
+trace_id
+session_id
+workflow_id
+user_message
+task_plan
+current_task_id
+task_outputs
+pending_tasks
+running_tasks
+completed_tasks
+failed_tasks
+message_history
+last_review_decision
+retry_count
+replan_count
+user_preferences
+long_term_memories
+last_papers
+selected_paper
+final_response
+status
+error
+```
+
+### 18.9 AgentMessage
+
+Agent 间通信使用统一消息结构：
+
+```text
+message_id
+workflow_id
+task_id
+sender
+receiver
+message_type
+payload
+metadata
+timestamp
+```
+
+消息类型：
+
+```text
+user.request
+task.planned
+task.assigned
+task.result
+task.reviewed
+workflow.final
+workflow.error
+```
+
+### 18.10 Redis Cache 范围
+
+只实现三类缓存：
+
+```text
+1. arXiv 搜索结果缓存
+2. Embedding / Rerank 缓存
+3. Workflow 轻量状态缓存
+```
+
+不要缓存：
+
+```text
+1. 完整 PDF 文件
+2. 完整 parsed.md/report.md 大文本
+3. 用户偏好事实源
+4. 论文库事实源
+5. Checkpointer 完整状态
+```
+
+### 18.11 Redis Key 设计
+
+```text
+arXiv:
+  arxiv:search:{hash(normalized_query + candidate_k)}
+  TTL: 30 minutes to 6 hours
+
+Embedding:
+  embedding:{hash(text)}
+  TTL: 7 to 30 days
+
+Rerank:
+  rerank:{hash(query + paper_ids + preference_version)}
+  TTL: 30 minutes to 2 hours
+
+Workflow:
+  workflow:state:{workflow_id}
+  TTL: 1 to 24 hours
+```
+
+### 18.12 Redis 降级要求
+
+```text
+1. Redis 未配置时，所有功能必须照常运行。
+2. Redis 连接失败时，只记录 warning，不向前端报错。
+3. arXiv cache miss 时走真实 arXiv API。
+4. embedding/rerank cache miss 时走原计算逻辑。
+5. Workflow cache miss 时从 LangGraph Checkpointer 或 TraceProjection 读取。
+6. Embedding 服务不可用时，继续保留 TF-IDF fallback。
+```
+
+### 18.13 Claude Code 实现后必须验证
+
+Claude Code 完成代码后必须执行并记录验证结果：
+
+```text
+Backend 基础:
+  [ ] python -m compileall backend/app
+  [ ] 后端在 Redis 未启动时可正常启动
+  [ ] 后端在 REDIS_URL 配置后可连接 Redis
+  [ ] GET /api/health 正常
+
+现有功能回归:
+  [ ] 简单聊天搜索论文正常
+  [ ] 收藏论文正常
+  [ ] 解析论文正常
+  [ ] 本地论文库查询正常
+  [ ] 论文报告查看正常
+  [ ] Trace 查询和详情正常
+  [ ] Settings 正常
+  [ ] 订阅任务页面/API 正常
+
+Multi-Agent:
+  [ ] 复合请求能生成 task_plan
+  [ ] search_papers 输出 papers
+  [ ] compare_papers 消费 search_papers 输出
+  [ ] select_best_paper 输出 selected_paper
+  [ ] collect_paper 消费 selected_paper
+  [ ] deep_read_paper 生成 report_markdown 或安全 partial_final
+  [ ] Reviewer 在 required_outputs 缺失时不会 finish
+  [ ] retry/replan/partial_final 路径可控
+
+Redis:
+  [ ] arXiv search cache miss 后写入 Redis
+  [ ] 相同 query 第二次命中 arXiv cache
+  [ ] embedding 或 rerank cache miss/hit 可观察
+  [ ] workflow:state:{workflow_id} 写入并可读取
+  [ ] Redis 故障不会中断 Agent 执行
+
+安全:
+  [ ] 订阅/通知工具仍不注册到 Agent Tool Registry
+  [ ] ToolRegistry 权限校验仍生效
+  [ ] Trace 不记录 API Key、飞书 webhook、完整 PDF 正文
+```
+
+### 18.14 Phase 11 完成标准
+
+```text
+1. 文档中的复合任务示例可以端到端执行，或在某一步失败时返回可解释 partial_final。
+2. Trace 页面可以看到多 Agent 的 plan、assigned、result、review、final 事件。
+3. Redis 三类缓存均有命中/未命中的可观测信息。
+4. Redis 不可用时，系统保持可运行。
+5. 所有 Phase 1-10 核心功能不回退。
 ```

@@ -21,6 +21,13 @@ export interface ChatMessage {
   papers?: PaperCardItem[]
   traceId?: string
   timestamp: string
+  metadata?: {
+    comparison?: any
+    selected_paper?: PaperCardItem
+    survey_markdown?: string
+    report_markdown?: string
+    task_summary?: TaskSummaryItem[]
+  }
 }
 
 export interface ChatRequest {
@@ -34,6 +41,20 @@ export interface ChatResponse {
   trace_id: string
   message: string
   papers: PaperCardItem[]
+  metadata?: Record<string, any>
   error_code?: string
   detail?: string
+}
+
+export interface ComparisonResult {
+  overview: string
+  papers: { arxiv_id: string; title: string }[]
+  dimensions: Record<string, string>
+}
+
+export interface TaskSummaryItem {
+  task_id: string
+  task_type: string
+  status: 'completed' | 'failed' | 'skipped'
+  summary: string
 }

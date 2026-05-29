@@ -331,6 +331,38 @@ USER_PREFERENCE_UPDATE_SCHEMA = {
     },
 }
 
+PAPER_SELECT_BEST_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "paper_select_best_skill",
+        "description": "Select the best paper from multiple candidates based on scores, comparison results, user preferences, and task goal. Use when the user wants to pick the best paper among several.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "papers": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": "List of candidate papers with scores and summaries",
+                },
+                "comparison": {
+                    "type": "object",
+                    "description": "Optional comparison result from paper_compare_skill for richer selection",
+                },
+                "user_message": {
+                    "type": "string",
+                    "description": "Original user request for understanding the selection goal",
+                },
+                "selection_criteria": {
+                    "type": "string",
+                    "enum": ["best_method", "most_practical", "best_overall"],
+                    "description": "Selection preference (default: best_overall)",
+                },
+            },
+            "required": ["papers", "user_message"],
+        },
+    },
+}
+
 TRACE_GET_SCHEMA = {
     "type": "function",
     "function": {

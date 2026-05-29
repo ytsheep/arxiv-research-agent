@@ -23,6 +23,15 @@ class Settings(BaseSettings):
     use_react_agent: bool = False  # Enable ReAct Agent for chat routing
     langgraph_checkpoint_db: str = "./data/langgraph_checkpoints.db"
 
+    # Redis cache (optional, all features work without it)
+    redis_url: str = ""  # e.g. "redis://localhost:6379/0"; empty = disabled
+    redis_ttl_search_min: int = 30  # min minutes for arXiv search cache TTL
+    redis_ttl_search_max: int = 360  # max minutes (6 hours)
+    redis_ttl_embedding_days: int = 7
+    redis_ttl_rerank_min: int = 30
+    redis_ttl_rerank_max: int = 120
+    redis_ttl_workflow_hours: int = 24
+
     class Config:
         env_file = ".env"
 
