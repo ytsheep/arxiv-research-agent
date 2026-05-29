@@ -7,9 +7,9 @@
 项目当前处于：
 
 ```text
-阶段：Phase 6 完成，架构升级完成
+阶段：Phase 10 完成，Research Workflow Agent Expansion 完成
 状态：开发中
-版本：v0.7.0
+版本：v0.10.0
 ```
 
 ---
@@ -44,6 +44,9 @@
 21. Skill Registry (Skill-as-Tool 模式) ✅ Phase 7
 22. MCP Server (JSON-RPC over stdio) ✅ Phase 7
 23. Trace 推理摘要 (reasoning_summary) ✅ Phase 7
+24. LangGraph StateGraph 编排层 ✅ Phase 8
+25. Four-layer Memory System ✅ Phase 9
+26. Research Workflow Agent Expansion (7 Skills, 21 Tools, Intent Router, Query Rewrite) ✅ Phase 10
 ```
 
 ---
@@ -254,8 +257,8 @@ Provider: deepseek
 Model: deepseek-v4-flash
 API Key: 已配置
 LLM 增强: 可用（卡片摘要已使用 LLM）
-Embedding: 降级到 TF-IDF（DeepSeek 不支持 /embeddings API）
-Rerank: 语义=TF-IDF, 摘要=LLM
+Embedding: 本地 BGE-M3 (BAAI/bge-m3, 1024-dim)
+Rerank: 语义=BGE-M3, 摘要=LLM
 ```
 
 ---
@@ -370,19 +373,19 @@ frontend/
 
 ## 11. 已知问题
 
-1. **Semantic Embedding**: DeepSeek 不支持 /embeddings API，rerank 使用 TF-IDF（效果仍优于纯关键词）。切换到 OpenAI 可启用 Embedding API。
+1. **Embedding**: 已升级为本地 BGE-M3，不再依赖 LLM Provider。首次加载需下载模型 (~2GB)，后续缓存使用。
 2. **PDF 解析质量**: 章节识别基于正则，多栏/复杂格式 PDF 可能解析不完整。
 3. **arXiv 429 限流**: 短时间内多次请求会被 arXiv 限流，触发 HTTP 429。
+4. **Embedding 已升级为本地 BGE-M3**: 不再依赖 LLM Provider 的 embedding API，直接使用本地 BAAI/bge-m3 模型 (1024-dim)，语义匹配质量大幅提升。
 
 ---
 
 ## 12. 下一步计划
 
-1. **启用 ReAct Agent**: 设置 `USE_REACT_AGENT=true` 测试 ReAct 路径
-2. **注册更多工具**: 将 write_safe/expensive 工具注册到 Tool Registry（第二批）
-3. **全库问答 RAG**: 基于已收藏论文的全文检索问答
-4. **多论文综述生成**: 基于多篇相关论文自动生成综述
-5. **Zotero/Notion 同步**: 论文库导出到第三方工具
+1. **全库问答 RAG**: 基于已收藏论文的全文检索问答
+2. **多论文综述 LLM 增强**: 将 literature_survey_skill 的模板输出升级为 LLM 深度综述
+3. **前端适配新响应类型**: 前端渲染 deep_read_result, comparison_result, survey_result, memory_profile_result, trace_diagnosis_result
+4. **Zotero/Notion 同步**: 论文库导出到第三方工具
 
 ---
 
@@ -453,3 +456,210 @@ LLM_API_KEY=sk-xxx
 LLM_MODEL=deepseek-v4-flash
 ```
 支持的 Provider：`openai` / `deepseek` / `qwen` / `openai-compatible`
+
+---
+
+## 15. Phase 8: LangGraph 状态图编排升级 - 已完成
+
+### 15.1 已完成任务
+```text
+[x] 新增 LangGraph StateGraph 编排层
+[x] 将聊天入口迁移为 FastAPI -> AgentOrchestrator -> LangGraphAgentRunner
+[x] 将论文搜索固定流程迁移为固定业务子图
+[x] 新增受控 ReAct 子图：plan -> guard -> execute -> observe -> final
+[x] 保留 Tool Registry 作为权限校验、schema 管理和执行分发层
+[x] 将 paper_search_card_skill 注册为高阶 Skill Tool，ReAct 优先调用 Skill
+[x] 接入 LangGraph AsyncSqliteSaver Checkpointer，checkpoint 成为状态事实来源
+[x] 新增 TraceProjectionService，从 checkpoint history 投影 TraceTimeline steps
+[x] TraceTool 保留为任务索引和旧流程兼容层，不再作为 LangGraph 状态 checkpoint
+```
+
+### 15.2 新增/修改文件
+```text
+backend/app/agent/state.py
+backend/app/agent/graph_runner.py
+backend/app/agent/orchestrator.py
+backend/app/services/trace_projection_service.py
+backend/app/services/trace_service.py
+backend/app/agent/bootstrap.py
+backend/app/agent/tool_registry.py
+backend/app/core/config.py
+backend/app/schemas/trace.py
+backend/main.py
+backend/requirements.txt
+```
+
+### 15.3 当前架构关系
+```text
+FastAPI API 层
+-> LangGraph StateGraph 编排层
+-> 固定业务子图 / ReAct 子图
+-> Skill 层
+-> Tool Registry
+-> Local Tool / MCP Adapter / RAG / DB / 文件系统
+-> LangGraph Checkpointer 作为状态事实来源
+-> TraceProjection 从 checkpoint history 生成可观测 UI
+```
+
+### 15.4 已验证
+```text
+[x] Python 静态编译通过
+[x] general_chat 路径生成 checkpoint history
+[x] paper_search 固定业务子图可执行
+[x] ReAct fallback 路径可通过 paper_search_card_skill 执行
+[x] TraceProjection 可从 checkpoint history 投影步骤
+```
+ 
+---
+
+## 16. Phase 9: Four-layer Memory System - Completed
+
+### 16.1 Completed
+```text
+[x] Added Working Memory fields to PaperAgentState for messages, last papers, long-term memories, and preferences
+[x] Added Short-term Memory as session Messages List with token-budget loading
+[x] Added tool_call/tool_response group_id pairing and atomic truncation/compaction
+[x] Added Long-term Structured Memory updates for preferred_topics and topic_interest_weights
+[x] Added Long-term Semantic Memory table for search history, paper metadata, and report chunks
+[x] Connected memory to LangGraph chat startup, ReAct prompt context, rerank preferences, and post-run persistence
+[x] Added follow-up paper reference handling for previous paper results
+[x] Added interest-query inference for requests like "find papers I am interested in"
+```
+
+### 16.2 Added/Modified Files
+```text
+backend/app/models/memory.py
+backend/app/services/memory_service.py
+backend/app/models/__init__.py
+backend/app/db/database.py
+backend/app/agent/state.py
+backend/app/agent/graph_runner.py
+backend/app/services/paper_service.py
+backend/app/api/settings.py
+```
+
+### 16.3 Current Memory Architecture
+```text
+Working Memory: LangGraph PaperAgentState
+Short-term Memory: chat_messages Messages List by session_id
+Long-term Structured Memory: user_preferences, papers, subscriptions, traces
+Long-term Semantic Memory: semantic_memories with embedding_json when available and TF-IDF fallback
+```
+
+### 16.4 Verified
+```text
+[x] python -m compileall backend/app
+[x] temporary SQLite smoke test for message loading, tool pair truncation, preference update, and semantic retrieval
+```
+
+---
+
+## 17. Phase 10: Research Workflow Agent Expansion - 已完成
+
+### 17.1 Status
+
+```text
+completed
+```
+
+### 17.2 已完成任务
+
+```text
+[x] 新增 5 个 Skill 文件: paper_deep_read_skill, paper_compare_skill, literature_survey_skill, interest_recommendation_skill, memory_profile_skill
+[x] 注册 trace_diagnosis_skill 到 Tool Registry (之前已实现但未注册)
+[x] 新增 9 个 Tool Schema: library_get_paper, library_get_report, paper_collect, paper_parse_full_text, paper_generate_deep_report, semantic_memory_search, user_preference_get, user_preference_update, trace_get
+[x] Tool Registry 从 6 个工具扩展到 21 个工具 (6 Skill + 15 Tool)
+[x] 权限分层: read_only(11), write_safe(3), expensive(4), external_send(0), write_dangerous(0)
+[x] 新增 Intent 关键词规则: paper_deep_read, paper_compare, literature_survey, interest_recommendation, memory_profile, trace_diagnosis
+[x] State 新增 11 个字段: original_query, rewritten_query, query_rewrite_source, query_filters, selected_skill, slots, needs_clarification, clarification_question, report_markdown, comparison, survey_markdown
+[x] Graph Runner 升级: _refine_intent 二次意图纠正, 新意图路由到 ReAct, fallback plan 覆盖所有意图, clarification 消息处理
+[x] _react_final_response_node 根据 intent 返回不同的 response type (deep_read_result, comparison_result, survey_result, memory_profile_result, trace_diagnosis_result)
+[x] ChatResponse 新增 metadata 字段, 支持传递 report_markdown/comparison/survey 等扩展数据
+[x] Business Rules 新增: literature_survey, paper_compare, interest_recommendation 禁止调用 expensive 工具
+[x] paper_deep_read 允许 expensive 工具 (pdf_parse_full_text, paper_generate_deep_report)
+[x] 订阅和通知工具未注册到 ReAct Tool Registry (符合安全要求)
+```
+
+### 17.3 新增/修改文件
+
+```
+backend/app/agent/
+  state.py                                    — 新增 11 个 State 字段
+  tool_schemas.py                             — 新增 9 个 OpenAI function schema
+  tool_registry.py                            — 新增 3 条 Business Rules
+  intent_classifier.py                        — 新增 6 组关键词规则 + entity extraction
+  bootstrap.py                                — 重写: 6→21 工具注册, 内联 6 个 handler wrapper
+  graph_runner.py                             — 更新: _refine_intent, _route_after_intent, _fallback_react_plan, _general_chat_node, _react_observe_node, _react_final_response_node, 5 个新 helper 方法
+  skills/
+    paper_deep_read_skill.py                  — 新增: 精读论文 Skill (resolve→collect→parse→report)
+    paper_compare_skill.py                    — 新增: 论文对比 Skill (LLM + template fallback)
+    literature_survey_skill.py                — 新增: 文献综述 Skill (expand→search→survey)
+    interest_recommendation_skill.py           — 新增: 兴趣推荐 Skill (preferences→query→search)
+    memory_profile_skill.py                   — 新增: 偏好管理 Skill (read/update preferences)
+
+backend/app/schemas/
+  chat.py                                     — ChatResponse 新增 metadata: dict 字段
+```
+
+### 17.4 Tool Registry 全景 (21 tools)
+
+```
+Skills (6):
+  paper_search_card_skill          read_only
+  paper_deep_read_skill            expensive
+  paper_compare_skill              read_only
+  literature_survey_skill          read_only
+  interest_recommendation_skill    read_only
+  memory_profile_skill             write_safe
+  trace_diagnosis_skill            read_only
+
+Atomic Tools (15):
+  arxiv_search                     read_only
+  paper_rerank                     read_only
+  paper_generate_card_summary      read_only
+  library_search_papers            read_only
+  library_get_paper                read_only
+  library_get_report               read_only
+  semantic_memory_search           read_only
+  user_preference_get              read_only
+  trace_query                      read_only
+  trace_get                        read_only
+  paper_collect                    write_safe
+  user_preference_update           write_safe
+  paper_parse_full_text            expensive
+  paper_generate_deep_report       expensive
+
+NOT registered (manual UI only):
+  subscription_create/update/run_now
+  notify_send_email/send_feishu
+```
+
+### 17.5 Intent Routing Flow
+
+```text
+用户输入 → classify_intent (keyword规则)
+  → _refine_intent (二次纠正: deep_read, compare, survey, memory_profile, trace_diagnosis)
+  → _route_after_intent:
+    paper_search → fixed pipeline / ReAct (根据 use_react)
+    新 intent → ReAct (paper_search_react)
+    general_chat → general_chat
+    needs_clarification → general_chat (澄清问题)
+```
+
+### 17.6 已验证
+
+```text
+[x] python -m compileall backend/app — 全部编译通过
+[x] Tool Registry 创建 21 个工具全部成功
+[x] Graph 结构完整 (14 nodes)
+[x] State 字段完整 (43 fields, 含 11 新增)
+[x] "find 2 papers about agent memory" → intent=paper_search, skill=paper_search_card_skill ✓
+[x] "deep read the second paper" → intent=paper_deep_read, skill=paper_deep_read_skill ✓
+[x] Backend health endpoint returns ok
+[x] Traces API 返回 18 条 trace
+[x] Library API 返回 3 篇论文
+[x] Settings API 返回偏好设置
+[x] Subscriptions API 正常
+[x] 订阅/通知工具未注册到 Tool Registry ✓ (安全要求)
+[x] BUSINESS_RULES 禁止 paper_search/literature_survey/paper_compare 调用 expensive 工具 ✓
+```

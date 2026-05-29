@@ -13,6 +13,7 @@ from app.api.settings import router as settings_router
 from app.db.database import init_db
 from app.jobs.scheduler import start_scheduler, shutdown_scheduler
 from app.core.logging import logger
+from app.agent.shared import orchestrator
 
 
 @asynccontextmanager
@@ -24,6 +25,7 @@ async def lifespan(app: FastAPI):
     logger.info("Scheduler started")
     yield
     shutdown_scheduler()
+    await orchestrator.close()
     logger.info("Shutting down...")
 
 

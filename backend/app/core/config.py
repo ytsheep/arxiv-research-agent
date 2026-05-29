@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     feishu_default_webhook: str = ""
 
     use_react_agent: bool = False  # Enable ReAct Agent for chat routing
+    langgraph_checkpoint_db: str = "./data/langgraph_checkpoints.db"
 
     class Config:
         env_file = ".env"

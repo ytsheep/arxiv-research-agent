@@ -16,6 +16,18 @@ BUSINESS_RULES = {
         "deny_tools": {"pdf_parse_full_text", "paper_generate_deep_report"},
         "reason": "Collect only downloads PDF, parsing is a separate action",
     },
+    "literature_survey": {
+        "deny_tools": {"pdf_parse_full_text", "paper_generate_deep_report"},
+        "reason": "Survey should not trigger full-text parsing of individual papers",
+    },
+    "paper_compare": {
+        "deny_tools": {"pdf_parse_full_text", "paper_generate_deep_report"},
+        "reason": "Comparison uses existing library data, not fresh parsing",
+    },
+    "interest_recommendation": {
+        "deny_tools": {"pdf_parse_full_text", "paper_generate_deep_report"},
+        "reason": "Recommendation is a search-only operation",
+    },
 }
 
 
@@ -69,6 +81,32 @@ class ToolRegistry:
 
         return True, ""
 
+    def validate_call(
+        self,
+        name: str,
+        context: dict | None = None,
+    ) -> dict:
+        """Validate a tool call without executing it."""
+        try:
+            tool = self.get(name)
+        except ValueError as e:
+            return {
+                "success": False,
+                "error_code": "UNKNOWN_TOOL",
+                "message": str(e),
+            }
+
+        allowed, reason = self._validate_permission(tool, context)
+        if not allowed:
+            return {
+                "success": False,
+                "error_code": "TOOL_NOT_ALLOWED",
+                "message": f"Tool '{name}' is not allowed in this context",
+                "detail": reason,
+            }
+
+        return {"success": True, "tool": name}
+
     async def call(
         self,
         name: str,
@@ -78,25 +116,10 @@ class ToolRegistry:
         """Validate and execute a tool call. Returns standard observation dict."""
         context = context or {}
 
-        try:
-            tool = self.get(name)
-        except ValueError as e:
-            return {
-                "success": False,
-                "error_code": "UNKNOWN_TOOL",
-                "message": str(e),
-                "detail": f"Tool '{name}' is not registered",
-            }
-
-        # Permission check
-        allowed, reason = self._validate_permission(tool, context)
-        if not allowed:
-            return {
-                "success": False,
-                "error_code": "TOOL_NOT_ALLOWED",
-                "message": f"Tool '{name}' is not allowed in this context",
-                "detail": reason,
-            }
+        validation = self.validate_call(name, context)
+        if not validation.get("success"):
+            return validation
+        tool = self.get(name)
 
         # Execute
         try:

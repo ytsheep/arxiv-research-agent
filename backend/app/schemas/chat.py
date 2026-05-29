@@ -28,6 +28,7 @@ class ChatResponse(BaseModel):
     trace_id: str = ""
     message: str = ""
     papers: list[PaperCardItem] = []
+    metadata: dict = {}
     error_code: str | None = None
     detail: str | None = None
 

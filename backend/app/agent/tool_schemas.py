@@ -173,3 +173,178 @@ TRACE_QUERY_SCHEMA = {
         },
     },
 }
+
+LIBRARY_GET_PAPER_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "library_get_paper",
+        "description": "Get a single paper from the local library by arXiv ID. Returns full metadata, file paths, and tags.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "arxiv_id": {
+                    "type": "string",
+                    "description": "The arXiv paper ID, e.g. '2604.09537v1'",
+                },
+            },
+            "required": ["arxiv_id"],
+        },
+    },
+}
+
+LIBRARY_GET_REPORT_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "library_get_report",
+        "description": "Get the Chinese deep reading report (report.md) for a paper from the local library.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "arxiv_id": {
+                    "type": "string",
+                    "description": "The arXiv paper ID, e.g. '2604.09537v1'",
+                },
+            },
+            "required": ["arxiv_id"],
+        },
+    },
+}
+
+PAPER_COLLECT_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "paper_collect",
+        "description": "Download a paper PDF from arXiv and save it to the local library with metadata. Does NOT parse full text or generate reports.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "paper": {
+                    "type": "object",
+                    "description": "Paper dict with arxiv_id, title, pdf_url, authors, abstract, categories, published_date",
+                },
+            },
+            "required": ["paper"],
+        },
+    },
+}
+
+PAPER_PARSE_FULL_TEXT_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "paper_parse_full_text",
+        "description": "Parse the full text of a PDF paper into structured sections and save as parsed.md. Requires the paper to already be collected (PDF downloaded). This is an expensive operation.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "arxiv_id": {
+                    "type": "string",
+                    "description": "The arXiv paper ID to parse",
+                },
+            },
+            "required": ["arxiv_id"],
+        },
+    },
+}
+
+PAPER_GENERATE_DEEP_REPORT_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "paper_generate_deep_report",
+        "description": "Generate a comprehensive Chinese deep reading report for a paper using LLM. Requires parsed.md to exist. This is an expensive operation.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "arxiv_id": {
+                    "type": "string",
+                    "description": "The arXiv paper ID to generate a report for",
+                },
+            },
+            "required": ["arxiv_id"],
+        },
+    },
+}
+
+SEMANTIC_MEMORY_SEARCH_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "semantic_memory_search",
+        "description": "Search long-term semantic memory for papers, search history, reports, and preference summaries related to a query.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query for semantic retrieval",
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "Number of top results to return (default 5)",
+                    "default": 5,
+                },
+                "source_types": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Filter by source types: search_history, paper, report, preference_summary",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+}
+
+USER_PREFERENCE_GET_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "user_preference_get",
+        "description": "Read current user research preferences: preferred topics, categories, topic interest weights, and defaults.",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+}
+
+USER_PREFERENCE_UPDATE_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "user_preference_update",
+        "description": "Update user research preferences. Use action='set' to replace a value, 'append' to add to a list, 'remove' to remove from a list.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string",
+                    "description": "Preference key: preferred_topics, preferred_categories, summary_language, default_candidate_k, default_top_n, etc.",
+                },
+                "value": {
+                    "type": "string",
+                    "description": "New value for the preference key",
+                },
+                "action": {
+                    "type": "string",
+                    "enum": ["set", "append", "remove"],
+                    "description": "How to apply the value: 'set' replaces, 'append' adds to existing, 'remove' deletes from existing",
+                },
+            },
+            "required": ["key", "value"],
+        },
+    },
+}
+
+TRACE_GET_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "trace_get",
+        "description": "Get the full detail of a single task trace by trace_id, including all steps with timing, input/output summaries, and errors.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "trace_id": {
+                    "type": "string",
+                    "description": "The trace ID to fetch details for",
+                },
+            },
+            "required": ["trace_id"],
+        },
+    },
+}

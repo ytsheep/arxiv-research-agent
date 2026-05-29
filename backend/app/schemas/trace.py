@@ -4,6 +4,7 @@ from pydantic import BaseModel
 class TraceStep(BaseModel):
     step_name: str
     tool_name: str | None = None
+    reasoning_summary: str = ""
     input_summary: str = ""
     output_summary: str = ""
     status: str = ""

@@ -19,6 +19,40 @@ INTENT_RULES: list[tuple[str, list[str]]] = [
     ("paper_parse", [
         r"解析|精读|总结全文|深度阅读|全文解析",
     ]),
+    ("paper_deep_read", [
+        r"deep.read|深度阅读|全文精读|详细分析这篇",
+        r"生成.*报告.*这篇|generate.*report.*this",
+        r"read.*(second|first|third|\d+).*(paper|论文|篇)",
+        r"(parse|analyze).*this.*paper",
+    ]),
+    ("paper_compare", [
+        r"compare|对比|比较|区别|异同|diff",
+        r"哪个更好|优缺点|对比分析",
+        r"(compare|对比|比较).*(这些|两|这几).*(paper|论文|篇)",
+    ]),
+    ("literature_survey", [
+        r"survey|综述|literature.review|概览|文献综述",
+        r"调研|总结.*领域|overview",
+        r"(make|write|generate).*(survey|综述|literature.review)",
+        r"(写|生成|做).*(综述|调研|概览)",
+    ]),
+    ("interest_recommendation", [
+        r"我感兴趣的|推荐.*感兴趣|according to my interest",
+        r"我.*兴趣.*(推荐|论文|找|搜)",
+        r"recommend.*(based on|my interest|preference)",
+    ]),
+    ("memory_profile", [
+        r"prefer|偏好|recommend more|fewer|少推荐|多推荐",
+        r"设置偏好|更新偏好|不感兴趣.*主题|更关注",
+        r"(in the future|以后|之后).*(recommend|推荐|prefer|偏好)",
+        r"(更多|更少).*(推荐|关注|推送)",
+    ]),
+    ("trace_diagnosis", [
+        r"diagnos|诊断|为什么失败|失败原因|出错",
+        r"what went wrong|debug|trace.*fail",
+        r"(last|recent|最近|上次).*(task|任务|job).*(fail|失败|出错)",
+        r"为什么.*(最后|最近|上次).*(任务|task).*(失败|fail)",
+    ]),
     ("library_search", [
         r"(查看|查找|搜索).*(本地|已收藏|库)",
         r"本地.*(论文|文献)",
@@ -126,10 +160,22 @@ def _extract_entities(intent: str, message: str) -> dict:
         entities["candidate_k"] = 20
 
     # Extract topic
-    if intent == "paper_search":
+    if intent in ("paper_search", "paper_deep_read", "literature_survey", "interest_recommendation"):
         topic = _extract_topic(message)
         if topic:
             entities["topic"] = topic
+
+    # Extract arxiv_id for paper-specific intents
+    if intent in ("paper_deep_read", "paper_collect", "paper_parse"):
+        arxiv_match = re.search(r"(\d{4}\.\d{4,}(?:v\d+)?)", message)
+        if arxiv_match:
+            entities["arxiv_id"] = arxiv_match.group(1)
+
+    # Extract arxiv_ids for comparison
+    if intent == "paper_compare":
+        ids = re.findall(r"(\d{4}\.\d{4,}(?:v\d+)?)", message)
+        if ids:
+            entities["arxiv_ids"] = ids
 
     # Extract time for subscription
     if intent in ("subscription_create", "subscription_update"):

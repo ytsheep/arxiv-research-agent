@@ -979,3 +979,139 @@ MVP 完成标准：
 12. 每次任务都能在流程查询页看到 trace
 13. 失败任务可以看到失败步骤和错误原因
 ```
+
+---
+
+## 16. Agent Capability Expansion Requirements
+
+### 16.1 Goal
+
+Upgrade the assistant from a paper-search agent into a research-workflow agent.
+The agent should help users search, read, compare, summarize, remember preferences,
+and diagnose failures. Subscription creation and notification sending must remain
+manual page features and must not be exposed as autonomous Agent Skill/Tool flows.
+
+### 16.2 In Scope
+
+The Agent should support the following natural-language tasks:
+
+```text
+1. Search papers by topic and return paper cards.
+2. Recommend papers based on the user's long-term interests.
+3. Resolve follow-up references such as "the second paper" or "that previous paper".
+4. Deep-read a selected paper and generate a full reading report.
+5. Compare multiple papers by problem, method, experiment, result, limitation, and value.
+6. Produce a small literature survey for a research topic.
+7. Update and query user research preferences.
+8. Diagnose failed Agent or workflow traces.
+```
+
+### 16.3 Out of Scope For Agent Autonomy
+
+Do not add Agent Skill/Tool capabilities for:
+
+```text
+1. Creating subscription tasks.
+2. Updating subscription schedules.
+3. Sending email.
+4. Sending Feishu/Lark notifications.
+5. Any external send operation without a manual UI action.
+```
+
+Subscription and notification features should remain in the existing manual UI pages.
+
+### 16.4 Required Skills
+
+Implement or register these high-level Skills:
+
+```text
+paper_search_card_skill
+paper_deep_read_skill
+paper_compare_skill
+literature_survey_skill
+interest_recommendation_skill
+memory_profile_skill
+trace_diagnosis_skill
+```
+
+The ReAct subgraph should prefer Skills over raw Tools. Raw Tools are available for
+Skill internals and narrow low-risk operations.
+
+### 16.5 Required Tools
+
+Expose these Agent-callable Tools through Tool Registry:
+
+```text
+arxiv_search
+paper_rerank
+paper_generate_card_summary
+library_search_papers
+library_get_paper
+library_get_report
+paper_collect
+paper_parse_full_text
+paper_generate_deep_report
+semantic_memory_search
+user_preference_get
+user_preference_update
+trace_query
+trace_get
+```
+
+Do not register subscription or notification Tools for ReAct use.
+
+### 16.6 Intent And Query Rewrite Requirements
+
+Intent routing must use a three-layer design:
+
+```text
+1. Rule-based high-confidence routing for explicit tasks.
+2. LLM structured intent classification with fixed JSON schema.
+3. Backend validation with Pydantic schemas, Tool Registry, and business guards.
+```
+
+The router must produce:
+
+```json
+{
+  "intent": "paper_deep_read",
+  "selected_skill": "paper_deep_read_skill",
+  "confidence": 0.91,
+  "slots": {
+    "topic": "",
+    "paper_ref": "second_last_result",
+    "top_n": 2
+  },
+  "needs_clarification": false,
+  "rewritten_query": "",
+  "reason": "User asked to deep-read the second paper from previous results."
+}
+```
+
+Query rewrite is required for:
+
+```text
+1. Paper search: convert natural Chinese/English request into research keywords.
+2. Interest recommendation: generate query from user preferences and semantic memory.
+3. Follow-up search: generate query from the referenced previous paper.
+4. Literature survey: expand topic into broader academic search terms.
+```
+
+Always keep both original query and rewritten query in State and Trace summaries.
+
+### 16.7 Acceptance Criteria
+
+The implementation is complete only when these user tasks work:
+
+```text
+1. "Find 2 papers about agent memory."
+2. "Find papers similar to the second one."
+3. "Deep-read the second paper and generate a report."
+4. "Compare these two papers."
+5. "Make a small literature survey about RAG agents."
+6. "Find two papers I am interested in."
+7. "In the future, recommend more RAG Agent papers and fewer CV papers."
+8. "Why did the last task fail?"
+```
+
+Every task must return a trace_id and must be visible in the Trace page.

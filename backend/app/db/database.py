@@ -16,5 +16,7 @@ async def get_db() -> AsyncSession:
 
 
 async def init_db():
+    import app.models  # noqa: F401 - register SQLAlchemy models before create_all
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

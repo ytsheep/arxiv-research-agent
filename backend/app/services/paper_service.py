@@ -2,6 +2,7 @@
 
 import os
 from app.schemas.paper import OperationResponse
+from app.services.memory_service import SemanticMemoryService
 from app.tools.arxiv_tool import ArxivTool
 from app.tools.pdf_tool import PdfTool
 from app.tools.report_tool import ReportTool
@@ -93,6 +94,10 @@ async def collect_paper(arxiv_id: str, paper_metadata: dict | None = None) -> Op
         )
 
     await orchestrator.trace_tool.complete(trace.trace_id, status="success", trace=trace)
+    try:
+        await SemanticMemoryService().remember_paper(paper_metadata)
+    except Exception as e:
+        logger.warning(f"Failed to persist paper semantic memory for {arxiv_id}: {e}")
     logger.info(f"Paper {arxiv_id} collected successfully, trace={trace.trace_id}")
 
     return OperationResponse(
@@ -211,6 +216,12 @@ async def parse_paper(arxiv_id: str) -> OperationResponse:
     )
 
     await orchestrator.trace_tool.complete(trace.trace_id, status="success", trace=trace)
+    try:
+        if report_result.get("report_path") and os.path.exists(report_result["report_path"]):
+            with open(report_result["report_path"], "r", encoding="utf-8") as f:
+                await SemanticMemoryService().remember_report(arxiv_id, f.read())
+    except Exception as e:
+        logger.warning(f"Failed to persist report semantic memory for {arxiv_id}: {e}")
     logger.info(f"Paper {arxiv_id} parsed successfully, trace={trace.trace_id}")
 
     return OperationResponse(

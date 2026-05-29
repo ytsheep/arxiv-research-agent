@@ -95,37 +95,35 @@ class EmbeddingTool:
             doc_texts.append(f"{title}. {abstract}")
 
         try:
-            from app.tools.llm_client import llm_client
-
-            if llm_client.available:
-                result = await self._llm_rerank(query, doc_texts, papers, top_n)
+            from app.tools.local_embedding import is_available, embed_batch
+            if is_available():
+                result = await self._local_rerank(query, doc_texts, papers, top_n)
                 if result.get("success"):
-                    return result["papers"], "LLM"
-                logger.warning(f"LLM rerank failed, falling back to TF-IDF: {result.get('error')}")
+                    return result["papers"], "BGE-M3"
+                logger.warning(f"Local rerank failed, falling back to TF-IDF: {result.get('error')}")
         except ImportError:
             pass
         except Exception as e:
-            logger.warning(f"LLM rerank error, falling back to TF-IDF: {e}")
+            logger.warning(f"Local embedding error, falling back to TF-IDF: {e}")
 
         return self._tfidf_rerank(query, doc_texts, papers, top_n), "TF-IDF"
 
-    async def _llm_rerank(
+    async def _local_rerank(
         self,
         query: str,
         doc_texts: list[str],
         papers: list[dict],
         top_n: int,
     ) -> dict:
-        """Rerank using LLM embedding API."""
-        from app.tools.llm_client import llm_client
+        """Rerank using local BGE-M3 embeddings."""
+        from app.tools.local_embedding import embed_batch
 
         all_texts = [query] + doc_texts
-        embed_result = await llm_client.embed(all_texts)
+        embeddings = embed_batch(all_texts)
 
-        if not embed_result.get("success"):
-            return {"success": False, "error": embed_result.get("error", "")}
+        if not embeddings or len(embeddings) < 2:
+            return {"success": False, "error": "Local embedding returned no results"}
 
-        embeddings = embed_result["embeddings"]
         query_embedding = embeddings[0]
         doc_embeddings = embeddings[1:]
 

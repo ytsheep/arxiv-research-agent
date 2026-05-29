@@ -1090,3 +1090,194 @@ PDF 下载
 错误定位
 用户偏好 Memory
 ```
+
+---
+
+## 19. Agent Capability Expansion Architecture
+
+### 19.1 Updated Agent Scope
+
+The Agent is a research-workflow assistant. It should support search, deep reading,
+paper comparison, literature survey, memory preference management, and trace diagnosis.
+Subscription and notification remain manual UI workflows and must not be exposed as
+autonomous Agent tools.
+
+### 19.2 Skill-First ReAct Architecture
+
+The ReAct subgraph should choose high-level Skills first:
+
+```text
+FastAPI
+-> LangGraph StateGraph
+-> Intent Router + Query Rewrite
+-> Controlled ReAct Subgraph
+-> Skill
+-> Tool Registry
+-> Local Tool / RAG / DB / File System
+-> LangGraph Checkpointer
+-> TraceProjection
+```
+
+The model may plan the next action, but the backend must validate the selected Skill
+or Tool before execution.
+
+### 19.3 Intent Router
+
+Add a structured Intent Router before ReAct planning.
+
+The router should combine:
+
+```text
+1. Rule routing for explicit actions:
+   - search papers
+   - deep-read selected paper
+   - compare papers
+   - survey topic
+   - update preference
+   - diagnose trace
+
+2. LLM structured classification:
+   - fixed JSON schema
+   - selected_skill
+   - confidence
+   - slots
+   - rewritten_query
+   - needs_clarification
+
+3. Backend validation:
+   - Pydantic validation
+   - required slot checks
+   - Tool Registry permission checks
+   - business rule checks
+```
+
+If confidence is lower than 0.7 or required slots are missing, return a clarification
+question instead of executing a risky tool.
+
+### 19.4 Query Rewrite
+
+Add query rewrite as a controlled backend step. It must not overwrite the original
+user request.
+
+Store these fields in PaperAgentState:
+
+```text
+original_query
+rewritten_query
+query_rewrite_source
+query_filters
+```
+
+Rewrite sources:
+
+```text
+explicit_user_topic
+referenced_previous_paper
+long_term_preferences
+semantic_memory
+literature_survey_expansion
+```
+
+### 19.5 Target Skills
+
+```text
+paper_search_card_skill:
+  arxiv_search -> paper_rerank -> paper_generate_card_summary
+
+paper_deep_read_skill:
+  resolve_paper_ref -> library_get_paper -> paper_collect if needed
+  -> paper_parse_full_text -> paper_generate_deep_report -> library_get_report
+
+paper_compare_skill:
+  resolve papers -> library_get_paper/report as available
+  -> compare problem/method/experiment/result/limitation/value
+
+literature_survey_skill:
+  query_rewrite -> arxiv_search -> paper_rerank -> paper_generate_card_summary
+  -> paper_compare style synthesis -> final survey
+
+interest_recommendation_skill:
+  user_preference_get -> semantic_memory_search -> query_rewrite
+  -> arxiv_search -> paper_rerank -> paper_generate_card_summary
+
+memory_profile_skill:
+  user_preference_get -> user_preference_update
+
+trace_diagnosis_skill:
+  trace_query -> trace_get -> diagnose failed node/tool/error
+```
+
+### 19.6 Target Tools And Permissions
+
+```text
+read_only:
+  arxiv_search
+  paper_rerank
+  paper_generate_card_summary
+  library_search_papers
+  library_get_paper
+  library_get_report
+  semantic_memory_search
+  user_preference_get
+  trace_query
+  trace_get
+
+write_safe:
+  paper_collect
+  user_preference_update
+
+expensive:
+  paper_parse_full_text
+  paper_generate_deep_report
+
+write_dangerous:
+  none for this phase
+
+external_send:
+  none for this phase
+```
+
+Business guards:
+
+```text
+1. Search stage must not parse full text unless user explicitly asks for deep reading.
+2. Deep reading must resolve a concrete arxiv_id before collecting/parsing.
+3. User preference updates are write_safe and should summarize what changed.
+4. No subscription or notification tool should be callable by ReAct.
+5. Expensive tools must be traceable and limited by max_steps.
+```
+
+### 19.7 Memory Support
+
+The existing four-layer Memory is sufficient for the new Skills and Tools:
+
+```text
+Working Memory:
+  PaperAgentState carries current task, selected papers, referenced paper, slots, and rewritten query.
+
+Short-term Memory:
+  chat_messages stores conversation history, last paper cards, and paired tool_call/tool_response groups.
+
+Long-term Structured Memory:
+  SQL stores user_preferences, papers, files, summaries, subscriptions, and traces.
+
+Long-term Semantic Memory:
+  semantic_memories stores search_history, paper metadata, report chunks, and preference summaries.
+```
+
+New memory Tools should be thin wrappers over the current Memory services.
+
+### 19.8 Verification Architecture
+
+After implementation, Claude Code must verify:
+
+```text
+1. Backend starts.
+2. Frontend starts.
+3. Existing manual subscription and notification pages still work.
+4. Search, collect, parse, report view, library, trace, settings still work.
+5. New Agent tasks choose correct Skill.
+6. Query rewrite is visible in State/Trace summaries.
+7. Checkpointer history and TraceProjection still generate timeline steps.
+8. Tool Registry rejects forbidden subscription/notification Tool calls.
+```

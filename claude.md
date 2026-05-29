@@ -820,3 +820,52 @@ Claude 应按以下顺序开发：
 ```
 
 第一目标完成后，再进入收藏和本地库。
+
+---
+
+## 15. Phase 10 Claude Code Implementation Rules
+
+Claude Code must follow `CLAUDE_CODE_AGENT_EXPANSION.md` before implementing the
+research-workflow Agent expansion.
+
+### 15.1 Scope
+
+Implement Agent capabilities for:
+
+```text
+search
+deep reading
+paper comparison
+literature survey
+interest recommendation
+memory preference management
+trace diagnosis
+```
+
+Do not implement Agent Skill/Tool automation for:
+
+```text
+subscription creation or update
+subscription run-now
+email sending
+Feishu/Lark sending
+```
+
+These remain manual UI features.
+
+### 15.2 Required Verification
+
+After code changes, Claude Code must verify:
+
+```text
+1. Backend starts and /api/health returns ok.
+2. Frontend starts and core pages do not white-screen.
+3. Existing search, collect, parse, library, report, trace, settings, subscription pages still work.
+4. New Agent tasks route to the correct Skill.
+5. Query rewrite works and is traceable.
+6. Four-layer Memory supports previous paper references and long-term interest recommendation.
+7. Tool Registry blocks forbidden subscription/notification tools from ReAct.
+8. Every task returns trace_id and is visible in Trace page.
+```
+
+Claude Code must report verification commands and results in its final response.

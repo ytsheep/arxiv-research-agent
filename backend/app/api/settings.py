@@ -14,6 +14,7 @@ DEFAULT_PREFERENCES = {
     "default_top_n": "2",
     "preferred_categories": "",
     "preferred_topics": "",
+    "topic_interest_weights": "{}",
     "summary_language": "zh-CN",
     "auto_parse_full_text": "false",
 }

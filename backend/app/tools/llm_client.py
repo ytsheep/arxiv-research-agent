@@ -145,34 +145,12 @@ class LLMClient:
         texts: list[str],
         model: str = "",
     ) -> dict:
-        """Get embeddings for texts. Uses OpenAI-compatible embeddings API."""
-        if not self._available:
-            return {"success": False, "embeddings": [], "error": "LLM not configured"}
-
-        model_name = model or settings.embedding_model or "text-embedding-3-small"
-
-        try:
-            client = await self._get_client()
-            response = await client.post(
-                f"{self._base_url}/embeddings",
-                json={
-                    "model": model_name,
-                    "input": texts,
-                },
-                headers={
-                    self._auth_header: f"{self._auth_prefix}{settings.llm_api_key}",
-                    "Content-Type": "application/json",
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-
-            embeddings = [item["embedding"] for item in data["data"]]
+        """Get embeddings for texts using local BGE-M3 model."""
+        from app.tools.local_embedding import embed_batch
+        embeddings = embed_batch(texts)
+        if embeddings:
             return {"success": True, "embeddings": embeddings, "error": None}
-
-        except httpx.HTTPError as e:
-            logger.error(f"Embedding API request failed ({self._provider}): {e}")
-            return {"success": False, "embeddings": [], "error": str(e)}
+        return {"success": False, "embeddings": [], "error": "Local embedding model not available"}
 
     async def chat_with_tools(
         self,
