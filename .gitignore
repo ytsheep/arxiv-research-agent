@@ -81,3 +81,14 @@ temp/
 *.tmp
 *.bak
 *.swp
+
+# 本地保留、不同步到远程的文档
+AGENTS.md
+CLAUDE_CODE_AGENT_EXPANSION.md
+SKILLS.md
+claude.md
+MCP.md
+ARCH.md
+PRD.md
+PROJECT_STATE.md
+
