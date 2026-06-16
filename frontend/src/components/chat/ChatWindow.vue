@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, nextTick, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import { useChatStore } from '../../stores/chatStore'
 import MessageBubble from './MessageBubble.vue'
 import ChatInput from './ChatInput.vue'
@@ -9,7 +8,6 @@ import { ElMessage } from 'element-plus'
 import type { PaperCardItem } from '../../types/chat'
 
 const chatStore = useChatStore()
-const router = useRouter()
 const messagesContainer = ref<HTMLElement>()
 const collectingPaper = ref<Set<string>>(new Set())
 const parsingPaper = ref<Set<string>>(new Set())

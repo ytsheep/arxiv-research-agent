@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
 import { useTraceStore } from '../stores/traceStore'
-import { useRouter } from 'vue-router'
 import TraceTimeline from '../components/trace/TraceTimeline.vue'
 
 const traceStore = useTraceStore()

@@ -62,7 +62,7 @@ async def paper_search_card_skill(
 
     # Step 1: Intent / normalize
     intent_result = classify_intent(user_message or topic)
-    raw_topic = intent_result.get("entities", {}).get("topic", topic)
+    raw_topic = topic or intent_result.get("entities", {}).get("topic", "")
     normalized_topic = normalize_query(raw_topic) if raw_topic else "machine learning"
     actual_top_n = intent_result.get("entities", {}).get("top_n", top_n)
 

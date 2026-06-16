@@ -156,6 +156,7 @@ async def _llm_compare(papers: list[dict]) -> dict:
         messages=[{"role": "user", "content": prompt}],
         temperature=0.3,
         max_tokens=2048,
+        usage_stage="paper_comparison",
     )
     if result.get("success") and result.get("data"):
         return result["data"]

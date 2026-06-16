@@ -1281,3 +1281,451 @@ After implementation, Claude Code must verify:
 7. Checkpointer history and TraceProjection still generate timeline steps.
 8. Tool Registry rejects forbidden subscription/notification Tool calls.
 ```
+
+---
+
+## 20. Multi-Agent Workflow And Redis Cache Architecture
+
+### 20.1 Architecture Goal
+
+Add a lightweight multi-Agent workflow for compound research tasks while keeping
+the existing LangGraphAgentRunner, Skill/Tool Registry, Memory, Trace, MCP, and
+manual subscription pages intact.
+
+This architecture should solve requests that contain multiple dependent actions:
+
+```text
+search papers -> compare papers -> select best paper -> collect paper -> deep-read paper
+```
+
+Do not replace existing simple flows. Route only compound tasks into the
+multi-Agent workflow.
+
+### 20.2 High-Level Flow
+
+```text
+FastAPI /api/chat
+-> Chat service / Agent entry
+-> Task complexity detector
+   -> simple task: existing LangGraphAgentRunner
+   -> compound task: MultiAgentGraphRunner
+-> LangGraph Multi-Agent Workflow
+-> LangGraph Checkpointer
+-> TraceProjection / frontend TraceTimeline
+```
+
+Compound task workflow:
+
+```text
+load_context
+-> supervisor_plan
+-> supervisor_dispatch
+-> executor_execute
+-> reviewer_review
+-> supervisor_decide
+   -> continue: supervisor_dispatch
+   -> retry: executor_execute
+   -> replan: supervisor_plan
+   -> partial_final: final_answer
+   -> finish: final_answer
+```
+
+### 20.3 Recommended Files
+
+Add new files without deleting the existing graph runner:
+
+```text
+backend/app/agent/
+  multi_agent_runner.py
+  workflow_state.py
+  message_schema.py
+  message_bus.py
+
+backend/app/agent/supervisor/
+  planner.py
+  dispatcher.py
+  prompts.py
+
+backend/app/agent/executor/
+  executor_agent.py
+  execution_map.py
+  input_resolver.py
+
+backend/app/agent/reviewer/
+  reviewer_agent.py
+  completion_checker.py
+  final_composer.py
+
+backend/app/services/
+  cache_service.py
+
+backend/app/core/
+  redis.py
+```
+
+Existing files to reuse:
+
+```text
+backend/app/agent/bootstrap.py
+backend/app/agent/tool_registry.py
+backend/app/agent/skills/*
+backend/app/services/memory_service.py
+backend/app/services/trace_projection_service.py
+backend/app/tools/arxiv_tool.py
+backend/app/tools/embedding_tool.py
+backend/app/tools/rerank_tool.py
+```
+
+### 20.4 WorkflowState
+
+Define WorkflowState separately from PaperAgentState:
+
+```python
+class WorkflowState(TypedDict, total=False):
+    trace_id: str
+    session_id: str
+    workflow_id: str
+    user_message: str
+
+    task_plan: list[dict]
+    current_task_id: str
+    task_outputs: dict[str, dict]
+
+    pending_tasks: list[str]
+    running_tasks: list[str]
+    completed_tasks: list[str]
+    failed_tasks: list[str]
+
+    message_history: list[dict]
+
+    last_review_decision: str
+    retry_count: dict[str, int]
+    replan_count: int
+
+    user_preferences: dict
+    long_term_memories: list[dict]
+    last_papers: list[dict]
+
+    selected_paper: dict
+    final_response: dict
+    status: str
+    error: str
+```
+
+Checkpointer must persist this state on every LangGraph node transition. Redis
+must cache only a lightweight projection and must not become the source of truth.
+
+### 20.5 AgentMessage Schema
+
+Use a structured in-process Message Bus backed by WorkflowState.message_history.
+
+```python
+class AgentMessage(BaseModel):
+    message_id: str
+    workflow_id: str
+    task_id: str | None
+    sender: str
+    receiver: str
+    message_type: str
+    payload: dict
+    metadata: dict = {}
+    timestamp: datetime
+```
+
+Allowed message types:
+
+```text
+user.request
+task.planned
+task.assigned
+task.result
+task.reviewed
+workflow.final
+workflow.error
+```
+
+The first implementation should not add Kafka, RabbitMQ, Redis Stream, or other
+message queue dependencies. Message Bus is a local abstraction that can be
+replaced later.
+
+### 20.6 Supervisor Agent
+
+Supervisor responsibilities:
+
+```text
+1. Detect compound tasks.
+2. Build task_plan with dependencies.
+3. Dispatch the next ready task.
+4. Replan when Reviewer returns replan.
+5. Stop when Reviewer returns finish or partial_final.
+```
+
+Task plan fields:
+
+```text
+task_id
+task_type
+description
+depends_on
+input_refs
+expected_outputs
+completion_criteria
+status
+retry_count
+```
+
+Planner should combine deterministic rules and LLM JSON planning. If LLM is not
+available, use a rule-based fallback for common chains:
+
+```text
+search + compare + best + collect + parse/deep-read
+search + survey
+interest recommendation + compare
+trace diagnosis
+```
+
+### 20.7 Executor Agent
+
+Executor must execute exactly one assigned task. It must not do global planning.
+
+Use deterministic task routing:
+
+```python
+TASK_EXECUTION_MAP = {
+    "search_papers": "paper_search_card_skill",
+    "recommend_by_interest": "interest_recommendation_skill",
+    "compare_papers": "paper_compare_skill",
+    "select_best_paper": "paper_select_best_skill",
+    "collect_paper": "paper_collect",
+    "deep_read_paper": "paper_deep_read_skill",
+    "literature_survey": "literature_survey_skill",
+    "trace_diagnosis": "trace_diagnosis_skill",
+    "memory_profile": "memory_profile_skill",
+}
+```
+
+The Executor must call through ToolRegistry so existing schema, permission, and
+business rule checks still apply.
+
+### 20.8 Reviewer Agent
+
+Reviewer checks whether task outputs satisfy completion criteria.
+
+Recommended decisions:
+
+```text
+continue
+retry
+replan
+partial_final
+finish
+```
+
+Use deterministic checks first:
+
+```text
+search_papers: papers length >= requested top_n
+compare_papers: comparison exists and includes at least two papers
+select_best_paper: selected_paper.arxiv_id exists
+collect_paper: success true and arxiv_id/library record exists
+deep_read_paper: report_markdown exists and is non-empty
+```
+
+Use LLM quality review only for optional quality checks, such as whether a deep
+reading report contains enough sections.
+
+### 20.9 Skill Updates
+
+Add:
+
+```text
+paper_select_best_skill
+```
+
+Update:
+
+```text
+paper_compare_skill
+```
+
+paper_compare_skill should support:
+
+```text
+arxiv_ids: for local-library comparison.
+papers: for freshly searched paper-card comparison.
+```
+
+When paper reports are missing, comparison must still work from title, abstract,
+summary, core_problem, method, and result.
+
+### 20.10 Redis Cache Layer
+
+Add Redis as optional infrastructure.
+
+Environment variables:
+
+```env
+REDIS_URL=redis://localhost:6379/0
+REDIS_ENABLED=true
+CACHE_DEFAULT_TTL_SECONDS=3600
+```
+
+If Redis is unavailable or disabled, all code must continue through normal
+database/API/file-system paths.
+
+Recommended module:
+
+```text
+backend/app/core/redis.py:
+  create Redis client lazily
+  expose get_redis()
+  fail closed with None
+
+backend/app/services/cache_service.py:
+  get_json(key)
+  set_json(key, value, ttl)
+  delete(key)
+  make_hash(value)
+```
+
+Do not add a heavyweight Redis task queue for this phase.
+
+### 20.11 arXiv Search Cache
+
+Wrap ArxivTool.search or the search execution point.
+
+```text
+key = arxiv:search:{hash(normalized_query + candidate_k)}
+ttl = 1800 to 21600 seconds
+```
+
+Flow:
+
+```text
+read Redis
+  hit -> return cached papers with cache_hit=true
+  miss -> call arXiv -> write Redis -> return papers
+  Redis error -> call arXiv normally
+```
+
+Trace summary should include cache_hit/cache_miss when available.
+
+### 20.12 Embedding / Rerank Cache
+
+Embedding cache:
+
+```text
+key = embedding:{hash(text)}
+ttl = 7 to 30 days
+```
+
+Rerank cache:
+
+```text
+key = rerank:{hash(query + paper_ids + preference_version)}
+ttl = 1800 to 7200 seconds
+```
+
+Rerank cache must include preference_version in the key. If no explicit version
+exists, derive one from user preference updated_at or a stable hash of the
+preference payload.
+
+Fallback behavior:
+
+```text
+Redis unavailable -> compute normally
+Embedding unavailable -> keep current TF-IDF fallback
+```
+
+### 20.13 Workflow Lightweight State Cache
+
+Cache a small projection for frontend progress polling:
+
+```text
+key = workflow:state:{workflow_id}
+ttl = 3600 to 86400 seconds
+```
+
+Value:
+
+```json
+{
+  "workflow_id": "",
+  "trace_id": "",
+  "status": "",
+  "current_task_id": "",
+  "completed_tasks": [],
+  "failed_tasks": [],
+  "last_review_decision": "",
+  "updated_at": ""
+}
+```
+
+This cache must be updated after:
+
+```text
+supervisor_plan
+supervisor_dispatch
+executor_execute
+reviewer_review
+supervisor_decide
+final_answer
+```
+
+The complete state remains in LangGraph Checkpointer.
+
+### 20.14 TraceProjection For Multi-Agent
+
+TraceProjection should show multi-Agent events:
+
+```text
+task.planned
+task.assigned
+task.result
+task.reviewed
+retry
+replan
+workflow.final
+cache_hit/cache_miss summaries
+```
+
+The frontend TraceTimeline should continue to work even if it only displays the
+events as generic steps in the first version.
+
+### 20.15 Verification Checklist For Claude Code
+
+After code changes, Claude Code must verify:
+
+```text
+Backend:
+  python -m compileall backend/app
+  backend starts with Redis disabled
+  backend starts with Redis enabled when Redis is available
+  /api/health works
+
+Existing features:
+  simple paper search works
+  collect works
+  parse/deep-read works
+  library list/detail/report works
+  trace list/detail works
+  settings works
+  subscription manual pages/API still work
+
+Multi-Agent:
+  compound query creates task_plan
+  search_papers -> compare_papers -> select_best_paper -> collect_paper -> deep_read_paper path works
+  Reviewer blocks final response when required output is missing
+  retry/replan/partial_final paths are safe
+
+Redis:
+  arXiv search cache hit/miss verified
+  embedding or rerank cache hit/miss verified
+  workflow lightweight state cache verified
+  Redis outage does not break task execution
+
+Security:
+  subscription/notification tools are not autonomously callable
+  ToolRegistry permission checks still run
+  trace does not store API keys, webhooks, or full PDF text
+```

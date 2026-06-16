@@ -142,7 +142,7 @@ class PdfTool:
             pages_text = []
             full_text = ""
             for i in range(len(doc)):
-                page_text = doc[i].get_text()
+                page_text = doc[i].get_text("text", sort=True)
                 pages_text.append(page_text)
                 full_text += page_text + "\n"
             doc.close()
@@ -191,6 +191,7 @@ class PdfTool:
 
     def _extract_sections(self, full_text: str) -> list[dict]:
         """Extract sections from full text using heading patterns."""
+        full_text = self._clean_text(full_text)
         # Patterns for section headings
         heading_patterns = [
             r"(?<=\n)\s*(\d+(?:\.\d+)*)\s+([A-Z][A-Za-z\s\-]{3,80})\s*\n",
@@ -207,14 +208,35 @@ class PdfTool:
                 section_spans.append((start, heading))
 
         section_spans.sort(key=lambda x: x[0])
+        deduplicated_spans = []
+        for start, heading in section_spans:
+            if deduplicated_spans and start == deduplicated_spans[-1][0]:
+                continue
+            deduplicated_spans.append((start, heading))
+        section_spans = deduplicated_spans
+
+        if not section_spans:
+            return [{
+                "heading": "Full Text",
+                "content": full_text,
+                "char_count": len(full_text),
+            }]
 
         # Extract section content
         sections = []
+        preamble = full_text[:section_spans[0][0]].strip()
+        if preamble:
+            sections.append({
+                "heading": "Document Header",
+                "content": preamble,
+                "char_count": len(preamble),
+            })
+
         for i, (start, heading) in enumerate(section_spans):
             if i + 1 < len(section_spans):
                 end = section_spans[i + 1][0]
             else:
-                end = min(start + 10000, len(full_text))
+                end = len(full_text)
 
             content = full_text[start:end].strip()
             # Remove the heading line from content
@@ -223,7 +245,7 @@ class PdfTool:
 
             sections.append({
                 "heading": heading.strip(),
-                "content": content[:5000],
+                "content": content,
                 "char_count": len(content),
             })
 
@@ -241,16 +263,17 @@ class PdfTool:
             if match:
                 refs = match.group(1).strip()
                 if len(refs) > 100:
-                    return refs[:8000]
+                    return self._clean_text(refs)
 
         return "参考文献解析失败（PDF格式限制）"
 
     def _clean_text(self, text: str) -> str:
         """Clean extracted text."""
-        # Remove excessive whitespace
-        text = re.sub(r"\n{3,}", "\n\n", text)
         # Remove hyphenation at line breaks
-        text = re.sub(r"(\w)-\n(\w)", r"\1\2", text)
+        text = re.sub(r"(?<=\w)-\s*\n\s*(?=\w)", "", text)
+        # Remove excessive whitespace
+        text = re.sub(r"[ \t]+\n", "\n", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
 
     def _write_parsed_md(self, arxiv_id: str, title: str, sections: list[dict], references: str) -> str:
@@ -272,11 +295,6 @@ class PdfTool:
                 prefix = "##"
             lines.append(f"{prefix} {heading}\n")
             lines.append(sec["content"])
-            lines.append("\n")
-
-        if references:
-            lines.append("## References\n")
-            lines.append(references)
             lines.append("\n")
 
         with open(parsed_path, "w", encoding="utf-8") as f:

@@ -32,11 +32,6 @@ class InputResolver:
 
         if "user_message" not in resolved and user_message:
             resolved["user_message"] = user_message
-        if "top_n" not in resolved:
-            resolved["top_n"] = default_top_n
-        if "candidate_k" not in resolved:
-            resolved["candidate_k"] = default_candidate_k
-
         return resolved
 
     @staticmethod
@@ -93,12 +88,14 @@ class InputResolver:
         # Try to extract topic after Chinese prefixes
         patterns = [
             r"关于\s*(\S+?)(?:\s*(?:的|论文|方向|领域|研究))",
-            r"(?:找|搜|检索|推荐).*?(?:关于|有关|相关)?\s*(\S+?)(?:\s*(?:的|论文|方向|研究))",
+            r"(?:找|搜索|搜|检索|推荐)\s*(?:\d+|[一二三四五六七八九十两几]+)?\s*篇?\s*(?:关于|有关)?\s*(.+?)\s*(?:相关)?(?:的)?论文",
         ]
         for pat in patterns:
             m = re.search(pat, user_message)
             if m:
-                return m.group(1)
+                topic = m.group(1).strip(" ,.;:，。")
+                if topic:
+                    return topic
 
         prefs = preferences or {}
         topics = prefs.get("preferred_topics", [])

@@ -107,6 +107,7 @@ class FinalComposer:
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
                 max_tokens=512,
+                usage_stage="final_composition",
             )
             if result.get("success") and result.get("content"):
                 return result["content"]

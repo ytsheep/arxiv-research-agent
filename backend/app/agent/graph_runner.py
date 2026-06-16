@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import aiosqlite
@@ -23,7 +24,7 @@ from app.tools.arxiv_tool import ArxivTool
 from app.tools.llm_client import llm_client
 from app.tools.report_tool import ReportTool
 from app.tools.rerank_tool import RerankTool
-from app.tools.trace_tool import TraceTool
+from app.tools.trace_tool import Trace, TraceTool
 
 MAX_REACT_STEPS = 6
 
@@ -50,7 +51,13 @@ class LangGraphAgentRunner:
         self._checkpointer: AsyncSqliteSaver | None = None
         self._checkpoint_conn: aiosqlite.Connection | None = None
 
-    async def run_chat(self, message: str, session_id: str) -> ChatResponse:
+    async def run_chat(
+        self,
+        message: str,
+        session_id: str,
+        trace: Trace | None = None,
+        progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    ) -> ChatResponse:
         """Run the chat task through the LangGraph StateGraph."""
         await self.short_memory.add_user_message(session_id, message)
         messages = await self.short_memory.load_messages(session_id)
@@ -64,10 +71,8 @@ class LangGraphAgentRunner:
             top_k=5,
         )
 
-        trace = self.trace_tool.create(
-            task_type="chat",
-            user_input=message,
-            tags=["langgraph"],
+        trace = trace or self.trace_tool.create(
+            task_type="chat", user_input=message, tags=["langgraph"],
         )
         graph = await self._get_graph()
         config = {"configurable": {"thread_id": trace.trace_id}}
@@ -89,7 +94,9 @@ class LangGraphAgentRunner:
         }
 
         try:
-            final_state = await graph.ainvoke(initial_state, config=config)
+            final_state = await self._invoke_graph(
+                graph, initial_state, config, progress_callback,
+            )
             final_response = final_state.get("final_response", {})
             status = final_state.get("status", "success")
             error = final_state.get("error", "")
@@ -122,6 +129,18 @@ class LangGraphAgentRunner:
                 message=f"任务执行失败: {exc}",
                 papers=[],
             )
+
+    async def _invoke_graph(self, graph, initial_state, config, progress_callback):
+        if progress_callback is None:
+            return await graph.ainvoke(initial_state, config=config)
+
+        final_state = initial_state
+        async for state in graph.astream(initial_state, config=config, stream_mode="values"):
+            if isinstance(state, dict):
+                final_state = state
+                if state.get("current_node"):
+                    await progress_callback(state)
+        return final_state
 
     async def get_state_history(self, trace_id: str) -> list[Any]:
         """Return LangGraph checkpoint snapshots for a trace/thread."""
@@ -249,6 +268,12 @@ class LangGraphAgentRunner:
 
         # Detect new intents that the keyword classifier might miss
         intent_result = self._refine_intent(message, intent_result, state)
+        refined_intent = intent_result.get("intent", "")
+        explicit_arxiv_ids = re.findall(r"(\d{4}\.\d{4,}(?:v\d+)?)", message)
+        if refined_intent == "paper_deep_read" and explicit_arxiv_ids:
+            entities["arxiv_id"] = explicit_arxiv_ids[0]
+        elif refined_intent == "paper_compare" and explicit_arxiv_ids:
+            entities["arxiv_ids"] = explicit_arxiv_ids
 
         referenced_paper = self._select_referenced_paper(message, state.get("last_papers", []))
         if referenced_paper:
@@ -259,6 +284,15 @@ class LangGraphAgentRunner:
             elif self._asks_for_deep_read(message):
                 intent_result = {"intent": "paper_deep_read", "confidence": 0.90, "entities": entities}
                 entities["arxiv_id"] = referenced_paper.get("arxiv_id", "")
+
+        if intent_result.get("intent") == "paper_compare" and not entities.get("arxiv_ids"):
+            last_papers = state.get("last_papers", [])
+            if self._references_multiple_papers(message) and len(last_papers) >= 2:
+                entities["arxiv_ids"] = [
+                    paper.get("arxiv_id", "")
+                    for paper in last_papers[:2]
+                    if paper.get("arxiv_id")
+                ]
 
         if self._is_interest_search(message) and (not raw_topic or self._looks_like_interest_placeholder(raw_topic)):
             intent_result = {"intent": "interest_recommendation", "confidence": 0.90, "entities": entities}
@@ -277,6 +311,7 @@ class LangGraphAgentRunner:
             "memory_profile": "memory_profile_skill",
             "trace_diagnosis": "trace_diagnosis_skill",
             "paper_search": "paper_search_card_skill",
+            "library_search": "library_search_papers",
         }
         selected_skill = skill_map.get(intent, "")
 
@@ -295,7 +330,12 @@ class LangGraphAgentRunner:
         needs_clarification = False
         clarification_question = ""
         if intent not in ("general_chat", "unsupported", "memory_profile", "trace_diagnosis"):
-            if not raw_topic and not referenced_paper and not entities.get("arxiv_id"):
+            if (
+                not raw_topic
+                and not referenced_paper
+                and not entities.get("arxiv_id")
+                and not entities.get("arxiv_ids")
+            ):
                 if intent in ("paper_search", "literature_survey", "interest_recommendation", "paper_deep_read", "paper_compare"):
                     needs_clarification = True
                     clarification_question = "请问您想搜索什么方向的论文？"
@@ -520,6 +560,7 @@ class LangGraphAgentRunner:
             tools=tool_schemas,
             temperature=0.2,
             max_tokens=1024,
+            usage_stage="react_tool_selection",
         )
         if result.get("success") and result.get("tool_calls"):
             call = result["tool_calls"][0]
@@ -548,6 +589,7 @@ class LangGraphAgentRunner:
             user_message=state.get("user_message", ""),
             state_summary=self._state_summary(state),
             tools=tool_schemas,
+            usage_stage="react_fallback_planning",
         )
         tool_name = plan.get("action", "final_answer")
         if tool_name != "final_answer":
@@ -754,16 +796,31 @@ class LangGraphAgentRunner:
     def _route_after_react_observe(self, state: PaperAgentState) -> str:
         if state.get("status") == "failed":
             return "fail"
-        if state.get("papers") or state.get("step_count", 0) >= state.get("max_steps", MAX_REACT_STEPS):
+        observation = state.get("tool_observation", {})
+        completed_outputs = any(
+            observation.get(key)
+            for key in (
+                "papers",
+                "ranked_papers",
+                "report_markdown",
+                "comparison",
+                "survey_markdown",
+                "preferences",
+                "traces",
+                "diagnosis",
+            )
+        )
+        if completed_outputs or state.get("step_count", 0) >= state.get("max_steps", MAX_REACT_STEPS):
             return "final"
         return "continue"
 
     def _react_tools(self, intent: str):
         tools = self.tool_registry.list_tools(intent)
-        skill_tools = [tool for tool in tools if tool.name.endswith("_skill")]
+        exact_tools = [tool for tool in tools if intent in tool.allowed_intents]
+        skill_tools = [tool for tool in exact_tools if tool.name.endswith("_skill")]
         if skill_tools:
             return skill_tools
-        return tools
+        return exact_tools or tools
 
     def _fallback_react_plan(self, state: PaperAgentState, step_count: int) -> dict:
         intent = state.get("intent", "paper_search")
@@ -772,22 +829,38 @@ class LangGraphAgentRunner:
 
         # Try to use the intent-selected skill first
         if skill and skill in self.tool_registry:
-            args: dict[str, Any] = {
-                "user_message": state.get("user_message", ""),
-                "topic": state.get("normalized_query") or state.get("query") or "machine learning",
-                "top_n": state.get("top_n", 2),
-                "candidate_k": state.get("candidate_k", 20),
-                "session_id": state.get("session_id", ""),
-            }
+            args: dict[str, Any]
             if intent == "paper_deep_read":
-                args["arxiv_id"] = slots.get("arxiv_id", "") or slots.get("paper_ref", "")
-                args["paper_ref"] = slots.get("paper_ref", "")
+                args = {
+                    "user_message": state.get("user_message", ""),
+                    "arxiv_id": slots.get("arxiv_id", "") or slots.get("paper_ref", ""),
+                    "paper_ref": slots.get("paper_ref", ""),
+                    "session_id": state.get("session_id", ""),
+                }
             elif intent == "paper_compare":
-                args["arxiv_ids"] = slots.get("arxiv_ids", [])
+                args = {
+                    "user_message": state.get("user_message", ""),
+                    "arxiv_ids": slots.get("arxiv_ids", []),
+                    "papers": state.get("last_papers", [])[:2],
+                }
             elif intent == "memory_profile":
-                args["action"] = slots.get("action", "read")
-                args["key"] = slots.get("key", "")
-                args["value"] = slots.get("value", "")
+                args = {
+                    "user_message": state.get("user_message", ""),
+                    "action": slots.get("action", "read"),
+                    "key": slots.get("key", ""),
+                    "value": slots.get("value", ""),
+                }
+            elif intent == "library_search":
+                args = {
+                    "keyword": self._extract_library_keyword(state.get("user_message", "")),
+                }
+            else:
+                args = {
+                    "user_message": state.get("user_message", ""),
+                    "topic": state.get("normalized_query") or state.get("query") or "machine learning",
+                    "top_n": state.get("top_n", 2),
+                    "candidate_k": state.get("candidate_k", 20),
+                }
             return {
                 "current_node": "react_plan",
                 "step_count": step_count,
@@ -961,7 +1034,10 @@ class LangGraphAgentRunner:
         confidence = intent_result.get("confidence", 0.5)
         entities = intent_result.get("entities", {})
 
-        if current in ("paper_parse",) and self._asks_for_deep_read(message):
+        if self._is_library_search_request(message):
+            return {"intent": "library_search", "confidence": max(confidence, 0.92), "entities": entities}
+
+        if self._asks_for_deep_read(message):
             return {"intent": "paper_deep_read", "confidence": max(confidence, 0.85), "entities": entities}
 
         if self._asks_for_survey(message):
@@ -982,7 +1058,7 @@ class LangGraphAgentRunner:
         text = message.lower()
         return any(term in text for term in [
             "deep read", "deep-read", "deep_read",
-            "\u6df1\u5ea6\u9605\u8bfb", "\u5168\u6587\u7cbe\u8bfb", "\u7cbe\u8bfb\u8fd9\u7bc7", "\u8be6\u7ec6\u5206\u6790\u8fd9\u7bc7",
+            "\u6df1\u5ea6\u9605\u8bfb", "\u5168\u6587\u7cbe\u8bfb", "\u7cbe\u8bfb", "\u8be6\u7ec6\u5206\u6790",
             "generate report", "\u751f\u6210\u62a5\u544a", "\u6df1\u5ea6\u89e3\u6790",
             "generate.*report.*this", "parse.*this.*paper",
             "read.*this.*paper", "analyze.*this.*paper",
@@ -998,10 +1074,48 @@ class LangGraphAgentRunner:
 
     def _asks_for_compare(self, message: str) -> bool:
         text = message.lower()
-        return any(term in text for term in [
+        explicit_compare = any(term in text for term in [
             "compare", "\u5bf9\u6bd4", "\u6bd4\u8f83", "\u533a\u522b", "\u5f02\u540c",
             "diff", "\u54ea\u4e2a\u66f4\u597d", "\u4f18\u7f3a\u70b9", "\u5bf9\u6bd4\u5206\u6790",
         ])
+        comparative_analysis = (
+            self._references_multiple_papers(message)
+            and any(term in text for term in [
+                "\u5404\u81ea", "\u4f18\u52bf", "\u5c40\u9650", "\u4f18\u70b9", "\u7f3a\u70b9",
+                "\u65b9\u6cd5\u5dee\u5f02", "\u9002\u5408",
+            ])
+        )
+        return explicit_compare or comparative_analysis
+
+    def _references_multiple_papers(self, message: str) -> bool:
+        text = message.lower()
+        ids = re.findall(r"(\d{4}\.\d{4,}(?:v\d+)?)", text)
+        return len(ids) >= 2 or any(term in text for term in [
+            "\u4e24\u7bc7", "\u8fd9\u4e24\u7bc7", "\u521a\u624d\u4e24\u7bc7",
+            "\u524d\u4e24\u7bc7", "\u4e0a\u9762\u4e24\u7bc7", "\u5404\u81ea",
+        ])
+
+    def _is_library_search_request(self, message: str) -> bool:
+        text = message.lower()
+        library_terms = [
+            "\u672c\u5730\u8bba\u6587\u5e93", "\u672c\u5730\u5e93", "\u8bba\u6587\u5e93",
+            "\u6587\u732e\u5e93", "\u5df2\u6536\u85cf", "\u6536\u85cf\u7684",
+        ]
+        search_terms = [
+            "\u67e5\u770b", "\u67e5\u627e", "\u641c\u7d22", "\u68c0\u7d22", "\u627e",
+        ]
+        return any(term in text for term in library_terms) and any(term in text for term in search_terms)
+
+    def _extract_library_keyword(self, message: str) -> str:
+        text = message
+        for term in [
+            "\u67e5\u770b", "\u67e5\u627e", "\u641c\u7d22", "\u68c0\u7d22", "\u627e",
+            "\u672c\u5730\u8bba\u6587\u5e93\u91cc\u7684", "\u672c\u5730\u8bba\u6587\u5e93",
+            "\u672c\u5730\u5e93", "\u8bba\u6587\u5e93", "\u6587\u732e\u5e93",
+            "\u5df2\u6536\u85cf\u7684", "\u6536\u85cf\u7684", "\u8bba\u6587", "\u6587\u732e",
+        ]:
+            text = text.replace(term, " ")
+        return re.sub(r"\s+", " ", text).strip(" ,.;:\uff0c\u3002")
 
     def _is_memory_profile_request(self, message: str) -> bool:
         text = message.lower()
@@ -1017,6 +1131,7 @@ class LangGraphAgentRunner:
         return any(term in text for term in [
             "diagnos", "\u8bca\u65ad", "\u4e3a\u4ec0\u4e48\u5931\u8d25", "\u5931\u8d25\u539f\u56e0",
             "\u51fa\u9519", "what went wrong", "debug",
+            "\u51fa\u4e86\u4ec0\u4e48\u95ee\u9898", "\u4e0a\u6b21\u4efb\u52a1",
             "last.*task.*fail", "\u6700\u8fd1.*\u4efb\u52a1.*\u5931\u8d25",
             "\u4e3a\u4ec0\u4e48.*\u6700\u540e.*\u4efb\u52a1", "trace.*fail",
             "last.*job.*fail", "\u4e0a\u6b21.*\u4efb\u52a1.*\u5931\u8d25",
@@ -1029,9 +1144,18 @@ class LangGraphAgentRunner:
         return any(term in text for term in search_terms) and any(term in text for term in paper_terms)
 
     def _extract_topic_from_message(self, message: str) -> str:
+        from app.agent.executor.input_resolver import InputResolver
+
+        resolved_topic = InputResolver._extract_topic(message, {})
+        if resolved_topic != "machine learning artificial intelligence":
+            return resolved_topic
+
         patterns = [
             r"(?:about|on|regarding)\s+(.+?)(?:\s+paper|\s+papers|$)",
             r"\u5173\u4e8e\s*(.+?)\s*(?:\u7684)?\s*(?:\u8bba\u6587|\u6587\u732e|paper|papers)",
+            r"(?:\u751f\u6210|\u5199|\u505a|\u8c03\u7814|\u603b\u7ed3).*?\s+(.+?)\s*\u9886\u57df(?:\u7684)?(?:\u6587\u732e)?(?:\u7efc\u8ff0|\u6982\u89c8|\u6982\u8ff0)",
+            r"(?:\u627e|\u641c\u7d22|\u641c|\u68c0\u7d22|\u63a8\u8350)\s*(?:\d+|[\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u4e03\u516b\u4e5d\u5341\u4e24\u51e0]+)?\s*\u7bc7?\s*(?:\u5173\u4e8e|\u6709\u5173)?\s*(.+?)\s*(?:\u76f8\u5173)?(?:\u7684)?\u8bba\u6587",
+            r"([A-Za-z][A-Za-z0-9_\-\s]+?)\s*(?:\u76f8\u5173)?(?:\u7684)?(?:\u8bba\u6587|\u6587\u732e)",
             r"(?:find|search|recommend)\s+(?:me\s+)?(?:\d+\s+)?(?:papers?\s+)?(?:about|on)?\s*(.+?)\s*(?:papers?|$)",
             r"(?:\u627e|\u641c|\u63a8\u8350).*?\s+([A-Za-z0-9_\-\s]+?)\s*(?:\u7684)?\s*(?:\u8bba\u6587|\u6587\u732e|paper|papers)",
         ]
@@ -1040,6 +1164,8 @@ class LangGraphAgentRunner:
             if match:
                 topic = match.group(1).strip(" ,.;:，。")
                 topic = re.sub(r"^\d+\s*", "", topic).strip()
+                topic = re.sub(r"^(?:\u4e00\u4efd|\u4e00\u4e2a|\u4e24\u7bc7|\u4e09\u7bc7|\u51e0\u7bc7)\s*", "", topic).strip()
+                topic = re.sub(r"\s*(?:\u76f8\u5173|\u65b9\u5411)$", "", topic).strip()
                 if topic:
                     return topic
         return ""

@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     llm_model: str = ""
     llm_base_url: str = ""  # override auto-detected base URL
     embedding_model: str = ""  # for embedding/rerank, defaults to text-embedding-3-small
+    bge_preload_enabled: bool = True
+    bge_model_path: str = "BAAI/bge-m3"
 
     smtp_host: str = ""
     smtp_port: str = ""

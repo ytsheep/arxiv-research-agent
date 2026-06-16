@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { sendMessage } from '../api/chatApi'
-import type { ChatMessage, PaperCardItem } from '../types/chat'
+import { getChatRequestErrorMessage, sendMessageStream } from '../api/chatApi'
+import type { ChatMessage, ChatProgressEvent } from '../types/chat'
 
 export const useChatStore = defineStore('chat', () => {
   const messages = ref<ChatMessage[]>([])
@@ -21,31 +21,64 @@ export const useChatStore = defineStore('chat', () => {
     })
   }
 
-  function addAssistantMessage(content: string, papers: PaperCardItem[] = [], traceId: string = '') {
+  function addStreamingMessage(): string {
+    const id = generateId()
     messages.value.push({
-      id: generateId(),
+      id,
       role: 'assistant',
-      content,
-      papers,
-      traceId,
+      content: '任务已接收，正在启动 Agent 工作流',
+      traceId: '',
       timestamp: new Date().toISOString(),
+      streaming: true,
+      progress: [],
     })
+    return id
+  }
+
+  function updateStreamingMessage(messageId: string, event: ChatProgressEvent, traceId: string) {
+    const message = messages.value.find((item) => item.id === messageId)
+    if (!message) return
+    message.traceId = traceId
+    if (event.eventType !== 'heartbeat') {
+      message.content = event.message
+      const duplicate = message.progress?.some((item) =>
+        (item.eventId && item.eventId === event.eventId)
+        || (item.eventType === event.eventType && item.message === event.message)
+      )
+      if (!duplicate) {
+        message.progress = [...(message.progress || []), event]
+      }
+    }
   }
 
   async function sendChatMessage(content: string) {
     addUserMessage(content)
+    const streamingMessageId = addStreamingMessage()
     loading.value = true
 
     try {
-      const response = await sendMessage({
-        session_id: sessionId.value,
-        message: content,
-      })
-
+      const response = await sendMessageStream(
+        {
+          session_id: sessionId.value,
+          message: content,
+        },
+        (event, traceId) => updateStreamingMessage(streamingMessageId, event, traceId),
+      )
       const text = response.message || '收到回复'
-      addAssistantMessage(text, response.papers || [], response.trace_id)
-    } catch (error: any) {
-      addAssistantMessage('请求失败，请检查后端服务是否已启动。')
+      const message = messages.value.find((item) => item.id === streamingMessageId)
+      if (message) {
+        message.content = text
+        message.papers = response.papers || []
+        message.traceId = response.trace_id
+        message.streaming = false
+        message.metadata = response.metadata
+      }
+    } catch (error: unknown) {
+      const message = messages.value.find((item) => item.id === streamingMessageId)
+      if (message) {
+        message.content = getChatRequestErrorMessage(error)
+        message.streaming = false
+      }
     } finally {
       loading.value = false
     }

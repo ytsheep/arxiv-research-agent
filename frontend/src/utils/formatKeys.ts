@@ -12,6 +12,8 @@ const SNAKE_TO_CAMEL_MAP: Record<string, string> = {
   summary_source: 'summarySource',
   core_problem: 'coreProblem',
   trace_id: 'traceId',
+  event_id: 'eventId',
+  event_type: 'eventType',
   task_type: 'taskType',
   user_input: 'userInput',
   error_message: 'errorMessage',

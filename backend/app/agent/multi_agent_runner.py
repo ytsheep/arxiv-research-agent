@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import aiosqlite
@@ -29,10 +30,10 @@ from app.core.config import settings
 from app.core.logging import logger
 from app.schemas.chat import ChatResponse, PaperCardItem
 from app.services.memory_service import SemanticMemoryService, ShortTermMemoryService
-from app.tools.trace_tool import TraceTool
+from app.tools.trace_tool import Trace, TraceTool
 
-MAX_RETRIES = 2
-MAX_REPLANS = 2
+MAX_RETRIES = 1
+MAX_REPLANS = 1
 
 
 class MultiAgentGraphRunner:
@@ -61,7 +62,13 @@ class MultiAgentGraphRunner:
 
     # ── Public API ─────────────────────────────────────────────────
 
-    async def run_chat(self, message: str, session_id: str) -> ChatResponse:
+    async def run_chat(
+        self,
+        message: str,
+        session_id: str,
+        trace: Trace | None = None,
+        progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    ) -> ChatResponse:
         await self.short_memory.add_user_message(session_id, message)
         messages = await self.short_memory.load_messages(session_id)
         last_papers = await self.short_memory.get_last_papers(session_id)
@@ -70,9 +77,8 @@ class MultiAgentGraphRunner:
             query=message, session_id=session_id, top_k=5,
         )
 
-        trace = self.trace_tool.create(
-            task_type="multi_agent_workflow",
-            user_input=message,
+        trace = trace or self.trace_tool.create(
+            task_type="multi_agent_workflow", user_input=message,
             tags=["multi_agent", "compound"],
         )
 
@@ -109,7 +115,9 @@ class MultiAgentGraphRunner:
         }
 
         try:
-            final_state = await graph.ainvoke(initial_state, config=config)
+            final_state = await self._invoke_graph(
+                graph, initial_state, config, progress_callback,
+            )
             final_response = final_state.get("final_response", {})
             status = final_state.get("status", "success")
             error = final_state.get("error", "")
@@ -138,6 +146,18 @@ class MultiAgentGraphRunner:
                 success=False, type="error", trace_id=trace.trace_id,
                 message=f"复合任务执行失败: {exc}", papers=[],
             )
+
+    async def _invoke_graph(self, graph, initial_state, config, progress_callback):
+        if progress_callback is None:
+            return await graph.ainvoke(initial_state, config=config)
+
+        final_state = initial_state
+        async for state in graph.astream(initial_state, config=config, stream_mode="values"):
+            if isinstance(state, dict):
+                final_state = state
+                if state.get("current_node"):
+                    await progress_callback(state)
+        return final_state
 
     async def close(self) -> None:
         if self._checkpoint_conn:
@@ -272,6 +292,7 @@ class MultiAgentGraphRunner:
         if self.dispatcher.has_blocked_tasks(task_plan, completed, running, failed):
             return {
                 "current_node": "supervisor_dispatch",
+                "current_task_id": "",
                 "status": "error",
                 "error": "Circular dependency detected: tasks blocked with no ready candidates",
                 "last_review_decision": "replan",
@@ -279,7 +300,11 @@ class MultiAgentGraphRunner:
 
         ready = self.dispatcher.find_ready_tasks(task_plan, completed, running, failed)
         if not ready:
-            return {"current_node": "supervisor_dispatch", "status": "idle"}
+            return {
+                "current_node": "supervisor_dispatch",
+                "current_task_id": "",
+                "status": "idle",
+            }
 
         next_task_id = ready[0]
         task_item = self.dispatcher.find_task_item(task_plan, next_task_id) or {}
@@ -367,7 +392,7 @@ class MultiAgentGraphRunner:
             task_type=task_item.get("task_type", ""),
             task_output=task_output,
             task_item=task_item,
-            retry_count=task_item.get("retry_count", 0),
+            retry_count=state.get("retry_count", 0),
             max_retries=state.get("max_retries", MAX_RETRIES),
         )
 
@@ -412,6 +437,8 @@ class MultiAgentGraphRunner:
                 "completed_tasks": [t for t in completed if t != task_id],
                 "failed_tasks": list(set(failed) | {task_id}),
             }
+        elif decision == "continue":
+            retry_count = 0
 
         return {
             "current_node": "reviewer_check",
@@ -549,7 +576,9 @@ class MultiAgentGraphRunner:
 
         if decision == "replan" and replan_count >= max_replans:
             return "workflow_review"
-        if decision in ("retry", "replan"):
+        if decision == "retry":
+            return "dispatch"
+        if decision == "replan":
             return "plan"
         if decision == "continue":
             return "dispatch"
@@ -615,7 +644,9 @@ class MultiAgentGraphRunner:
             if response.papers:
                 await self.semantic_memory.remember_search(
                     session_id=session_id,
+                    trace_id=trace_id,
                     query=user_message,
+                    user_message=user_message,
                     papers=[p.model_dump() for p in response.papers],
                 )
         except Exception as e:

@@ -47,8 +47,14 @@ class Trace:
 class TraceTool:
     """Database-backed trace store."""
 
-    def create(self, task_type: str, user_input: str = "", tags: list[str] | None = None) -> Trace:
-        trace_id = f"trace_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+    def create(
+        self,
+        task_type: str,
+        user_input: str = "",
+        tags: list[str] | None = None,
+        trace_id: str = "",
+    ) -> Trace:
+        trace_id = trace_id or f"trace_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
         trace = Trace(
             trace_id=trace_id,
             task_type=task_type,

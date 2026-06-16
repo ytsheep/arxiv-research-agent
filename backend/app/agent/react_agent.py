@@ -89,6 +89,7 @@ class ReactAgent:
                 user_message=message,
                 state_summary=state.to_summary(),
                 tools=tool_schemas,
+                usage_stage="legacy_react_planning",
             )
 
             await self.trace_tool.log_step(

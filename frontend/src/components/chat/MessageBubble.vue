@@ -21,6 +21,18 @@ const isUser = computed(() => props.message.role === 'user')
     <div class="bubble-content">
       <div class="message-text">{{ message.content }}</div>
 
+      <div v-if="message.progress?.length" class="progress-list">
+        <div
+          v-for="event in message.progress"
+          :key="event.eventId || `${event.eventType}-${event.timestamp}`"
+          class="progress-item"
+          :class="{ active: message.streaming && event === message.progress[message.progress.length - 1] }"
+        >
+          <span class="progress-dot"></span>
+          <span>{{ event.message }}</span>
+        </div>
+      </div>
+
       <template v-if="message.papers && message.papers.length > 0">
         <div class="papers-list">
           <PaperCard
@@ -76,6 +88,34 @@ const isUser = computed(() => props.message.role === 'user')
 }
 .papers-list {
   margin-top: 12px;
+}
+.progress-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #3a3a3a;
+}
+.progress-item {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: #999;
+  font-size: 12px;
+}
+.progress-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #67c23a;
+  flex: 0 0 auto;
+}
+.progress-item.active {
+  color: #d5e8ff;
+}
+.progress-item.active .progress-dot {
+  background: #409eff;
 }
 .message-meta {
   display: flex;

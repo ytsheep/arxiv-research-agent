@@ -49,7 +49,8 @@
       "Bash(pip list *)",
       "Bash(git *)",
       "Bash(uvicorn main:app --host 0.0.0.0 --port 8000)",
-      "Bash(pkill -f \"uvicorn main:app\")"
+      "Bash(pkill -f \"uvicorn main:app\")",
+      "Bash(kill %1)"
     ],
     "defaultMode": "acceptEdits"
   }

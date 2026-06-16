@@ -38,6 +38,12 @@ class LLMClient:
         self._client: httpx.AsyncClient | None = None
         self._provider = settings.llm_provider or "openai"
         self._available = bool(settings.llm_api_key)
+        self._usage = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+        }
+        self._usage_by_stage: dict[str, dict[str, int]] = {}
 
         config = PROVIDER_CONFIGS.get(self._provider, PROVIDER_CONFIGS["openai"])
         self._base_url = settings.llm_base_url or config["base_url"]
@@ -57,6 +63,45 @@ class LLMClient:
     def model(self) -> str:
         return self._default_model
 
+    def reset_usage(self) -> None:
+        """Reset accumulated provider-reported token usage."""
+        self._usage = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+        }
+        self._usage_by_stage = {}
+
+    def get_usage(self) -> dict:
+        """Return accumulated provider-reported token usage."""
+        return {
+            **self._usage,
+            "usage_by_stage": {
+                stage: dict(usage)
+                for stage, usage in self._usage_by_stage.items()
+            },
+        }
+
+    def _record_usage(self, data: dict, usage_stage: str = "unclassified") -> dict[str, int]:
+        usage = data.get("usage") or {}
+        input_tokens = int(usage.get("prompt_tokens", usage.get("input_tokens", 0)) or 0)
+        output_tokens = int(usage.get("completion_tokens", usage.get("output_tokens", 0)) or 0)
+        total_tokens = int(usage.get("total_tokens", input_tokens + output_tokens) or 0)
+        normalized = {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": total_tokens,
+        }
+        for key, value in normalized.items():
+            self._usage[key] += value
+        stage_usage = self._usage_by_stage.setdefault(
+            usage_stage,
+            {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+        )
+        for key, value in normalized.items():
+            stage_usage[key] += value
+        return normalized
+
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
             self._client = httpx.AsyncClient(timeout=120.0)
@@ -69,6 +114,7 @@ class LLMClient:
         temperature: float = 0.3,
         max_tokens: int = 2048,
         response_format: dict | None = None,
+        usage_stage: str = "unclassified",
     ) -> dict:
         """Send a chat completion request."""
         if not self._available:
@@ -99,7 +145,8 @@ class LLMClient:
             data = response.json()
 
             content = data["choices"][0]["message"]["content"]
-            return {"success": True, "content": content, "error": None}
+            usage = self._record_usage(data, usage_stage)
+            return {"success": True, "content": content, "usage": usage, "error": None}
 
         except httpx.HTTPError as e:
             logger.error(f"LLM API request failed ({self._provider}): {e}")
@@ -114,6 +161,7 @@ class LLMClient:
         model: str = "",
         temperature: float = 0.2,
         max_tokens: int = 2048,
+        usage_stage: str = "unclassified",
     ) -> dict:
         """Send a chat request and parse JSON response."""
         result = await self.chat(
@@ -122,6 +170,7 @@ class LLMClient:
             temperature=temperature,
             max_tokens=max_tokens,
             response_format={"type": "json_object"},
+            usage_stage=usage_stage,
         )
 
         if not result["success"]:
@@ -129,14 +178,14 @@ class LLMClient:
 
         try:
             parsed = json.loads(result["content"])
-            return {"success": True, "content": parsed, "error": None}
+            return {"success": True, "content": parsed, "data": parsed, "error": None}
         except json.JSONDecodeError:
             content = result["content"]
             try:
                 start = content.index("{")
                 end = content.rindex("}") + 1
                 parsed = json.loads(content[start:end])
-                return {"success": True, "content": parsed, "error": None}
+                return {"success": True, "content": parsed, "data": parsed, "error": None}
             except (ValueError, json.JSONDecodeError):
                 return {"success": False, "content": "", "error": "Failed to parse JSON from LLM response"}
 
@@ -159,6 +208,7 @@ class LLMClient:
         model: str = "",
         temperature: float = 0.3,
         max_tokens: int = 2048,
+        usage_stage: str = "unclassified",
     ) -> dict:
         """Send a chat completion request with tool/function definitions.
         Returns tool_calls from the response, or a text response if no tool is called."""
@@ -190,6 +240,7 @@ class LLMClient:
 
             choice = data["choices"][0]
             message = choice.get("message", {})
+            usage = self._record_usage(data, usage_stage)
 
             tool_calls = message.get("tool_calls", [])
             content = message.get("content", "")
@@ -198,6 +249,7 @@ class LLMClient:
                 "success": True,
                 "content": content,
                 "tool_calls": tool_calls,
+                "usage": usage,
                 "error": None,
             }
 
@@ -214,6 +266,7 @@ class LLMClient:
         state_summary: str,
         tools: list[dict],
         model: str = "",
+        usage_stage: str = "react_fallback_planning",
     ) -> dict:
         """Plan the next ReAct step. Returns a structured decision:
         {"reasoning_summary": str, "action": str, "arguments": dict}
@@ -263,6 +316,7 @@ Output exactly this JSON (no extra text):
             model=model,
             temperature=0.2,
             max_tokens=1024,
+            usage_stage=usage_stage,
         )
 
         if result["success"] and isinstance(result["content"], dict):

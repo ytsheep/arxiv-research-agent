@@ -1,0 +1,10 @@
+{"case_id":"e2e_single_search_cold","agent_mode":"single_agent","user_query":"帮我找两篇 RAG evaluation 相关论文","expected_response_types":["paper_search_result"],"min_papers":2,"expected_task_count":1,"cold_start_probe":true}
+{"case_id":"e2e_single_search_warm","agent_mode":"single_agent","user_query":"帮我找两篇 Agent Memory 相关论文","expected_response_types":["paper_search_result"],"min_papers":2,"expected_task_count":1}
+{"case_id":"e2e_single_deep_read","agent_mode":"single_agent","user_query":"为 2401.15391v1 生成中文精读报告","expected_response_types":["deep_read_result"],"min_papers":0,"expected_task_count":1}
+{"case_id":"e2e_single_compare","agent_mode":"single_agent","user_query":"对比 2401.15391v1 和 2505.18458v3","expected_response_types":["comparison_result"],"min_papers":0,"expected_task_count":1}
+{"case_id":"e2e_multi_compare_rag","agent_mode":"multi_agent","user_query":"找两篇 RAG 论文并对比","expected_response_types":["workflow_result"],"min_papers":2,"expected_task_count":2}
+{"case_id":"e2e_multi_compare_agents","agent_mode":"multi_agent","user_query":"搜索两篇多智能体协作论文，然后比较它们的方法","expected_response_types":["workflow_result"],"min_papers":2,"expected_task_count":2}
+{"case_id":"e2e_multi_select_tool","agent_mode":"multi_agent","user_query":"找三篇 Tool Calling 论文，对比后选择最好的一篇","expected_response_types":["workflow_result"],"min_papers":2,"expected_task_count":3}
+{"case_id":"e2e_multi_select_context","agent_mode":"multi_agent","user_query":"找三篇长上下文评测论文，比较后选择最好的一篇","expected_response_types":["workflow_result"],"min_papers":2,"expected_task_count":3}
+{"case_id":"e2e_multi_survey","agent_mode":"multi_agent","user_query":"搜索几篇多智能体论文并生成文献综述","expected_response_types":["workflow_result"],"min_papers":2,"expected_task_count":2}
+{"case_id":"e2e_multi_deep_read","agent_mode":"multi_agent","user_query":"找两篇多跳 RAG 论文，对比后选择最好的一篇并精读","expected_response_types":["workflow_result"],"min_papers":2,"expected_task_count":4}

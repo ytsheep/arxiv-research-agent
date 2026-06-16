@@ -152,6 +152,7 @@ async def _llm_survey(topic: str, expanded_topic: str, papers: list[dict]) -> st
         messages=[{"role": "user", "content": prompt}],
         temperature=0.3,
         max_tokens=3000,
+        usage_stage="literature_survey",
     )
     if result.get("success") and result.get("content"):
         return result["content"]

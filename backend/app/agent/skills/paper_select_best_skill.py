@@ -147,6 +147,7 @@ async def _llm_select(
         messages=[{"role": "user", "content": prompt}],
         temperature=0.3,
         max_tokens=1024,
+        usage_stage="paper_selection",
     )
 
     if result.get("success") and result.get("data"):

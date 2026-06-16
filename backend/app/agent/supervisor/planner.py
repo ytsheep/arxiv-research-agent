@@ -18,7 +18,9 @@ class SupervisorPlanner:
         if llm_client.available:
             result = await self._llm_plan(user_message, user_preferences)
             if result.get("success") and result.get("task_plan"):
-                return result
+                result["task_plan"] = self._normalize_task_plan(result["task_plan"])
+                if result["task_plan"]:
+                    return result
             logger.warning("LLM planning failed or returned empty, falling back to rules")
 
         return self._rule_plan(user_message)
@@ -41,6 +43,7 @@ class SupervisorPlanner:
                 ],
                 temperature=0.2,
                 max_tokens=2048,
+                usage_stage="supervisor_planning",
             )
             if result.get("success") and result.get("data"):
                 data = result["data"]
@@ -74,3 +77,25 @@ class SupervisorPlanner:
             "task_plan": [],
             "reason": "No applicable rule-based plan detected",
         }
+
+    @staticmethod
+    def _normalize_task_plan(task_plan: list[dict]) -> list[dict]:
+        """Normalize LLM output references such as task_1.papers to task_1."""
+        task_ids = {
+            item.get("task_id", "")
+            for item in task_plan
+            if isinstance(item, dict) and item.get("task_id")
+        }
+        normalized = []
+        for item in task_plan:
+            if not isinstance(item, dict) or not item.get("task_id") or not item.get("task_type"):
+                continue
+            clean = dict(item)
+            dependencies = []
+            for dependency in clean.get("depends_on", []) or []:
+                task_id = str(dependency).split(".", 1)[0]
+                if task_id in task_ids and task_id != clean["task_id"] and task_id not in dependencies:
+                    dependencies.append(task_id)
+            clean["depends_on"] = dependencies
+            normalized.append(clean)
+        return normalized

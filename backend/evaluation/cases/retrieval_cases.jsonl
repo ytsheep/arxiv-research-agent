@@ -1,0 +1,40 @@
+{"case_id":"retrieval_001","query":"ti:\"MultiHop-RAG: Benchmarking Retrieval-Augmented Generation for Multi-Hop Queries\"","gold_arxiv_ids":["2401.15391"]}
+{"case_id":"retrieval_002","query":"reasoning and acting language model agent","gold_arxiv_ids":["2210.03629"]}
+{"case_id":"retrieval_003","query":"transformer attention architecture without recurrence","gold_arxiv_ids":["1706.03762"]}
+{"case_id":"retrieval_004","query":"retrieval augmented generation knowledge intensive NLP","gold_arxiv_ids":["2005.11401"]}
+{"case_id":"retrieval_005","query":"automated evaluation metrics for RAG systems","gold_arxiv_ids":["2309.15217"]}
+{"case_id":"retrieval_006","query":"language model learns to call external tools","gold_arxiv_ids":["2302.04761"]}
+{"case_id":"retrieval_007","query":"language agents verbal reinforcement self reflection","gold_arxiv_ids":["2303.11366"]}
+{"case_id":"retrieval_008","query":"multi agent conversation framework LLM applications","gold_arxiv_ids":["2308.08155"]}
+{"case_id":"retrieval_009","query":"CAMEL communicative agents role playing society","gold_arxiv_ids":["2303.17760"]}
+{"case_id":"retrieval_010","query":"interactive generative agents human behavior simulation","gold_arxiv_ids":["2304.03442"]}
+{"case_id":"retrieval_011","query":"chain of thought prompting reasoning large language models","gold_arxiv_ids":["2201.11903"]}
+{"case_id":"retrieval_012","query":"self consistency chain of thought reasoning","gold_arxiv_ids":["2203.11171"]}
+{"case_id":"retrieval_013","query":"tree search deliberate problem solving language models","gold_arxiv_ids":["2305.10601"]}
+{"case_id":"retrieval_014","query":"hypothetical document embeddings zero shot dense retrieval","gold_arxiv_ids":["2212.10496"]}
+{"case_id":"retrieval_015","query":"low rank adaptation large language models","gold_arxiv_ids":["2106.09685"]}
+{"case_id":"retrieval_016","query":"bidirectional transformer pretraining language understanding","gold_arxiv_ids":["1810.04805"]}
+{"case_id":"retrieval_017","query":"few shot language models GPT-3","gold_arxiv_ids":["2005.14165"]}
+{"case_id":"retrieval_018","query":"open efficient foundation language model LLaMA","gold_arxiv_ids":["2302.13971"]}
+{"case_id":"retrieval_019","query":"language models lose information in middle of long context","gold_arxiv_ids":["2307.03172"]}
+{"case_id":"retrieval_020","query":"bilingual multitask benchmark long context understanding","gold_arxiv_ids":["2308.14508"]}
+{"case_id":"retrieval_021","query":"self reflective retrieval augmented generation adaptive retrieval","gold_arxiv_ids":["2310.11511"]}
+{"case_id":"retrieval_022","query":"recursive abstractive processing tree organized retrieval","gold_arxiv_ids":["2401.18059"]}
+{"case_id":"retrieval_023","query":"graph RAG local to global community summaries","gold_arxiv_ids":["2404.16130"]}
+{"case_id":"retrieval_024","query":"corrective retrieval augmented generation web search","gold_arxiv_ids":["2401.15884"]}
+{"case_id":"retrieval_025","query":"active retrieval augmented generation when to retrieve","gold_arxiv_ids":["2305.06983"]}
+{"case_id":"retrieval_026","query":"Gorilla large language model connected with APIs","gold_arxiv_ids":["2305.15334"]}
+{"case_id":"retrieval_027","query":"modular reasoning knowledge language systems MRKL","gold_arxiv_ids":["2205.00445"]}
+{"case_id":"retrieval_028","query":"automatic multi step reasoning and tool use language models","gold_arxiv_ids":["2303.09014"]}
+{"case_id":"retrieval_029","query":"lifelong embodied agent minecraft Voyager","gold_arxiv_ids":["2305.16291"]}
+{"case_id":"retrieval_030","query":"MetaGPT multi agent software company framework","gold_arxiv_ids":["2308.00352"]}
+{"case_id":"retrieval_031","query":"ChatDev communicative agents software development","gold_arxiv_ids":["2307.07924"]}
+{"case_id":"retrieval_032","query":"benchmark evaluating LLM agents AgentBench","gold_arxiv_ids":["2308.03688"]}
+{"case_id":"retrieval_033","query":"benchmark resolving real github issues language models","gold_arxiv_ids":["2310.06770"]}
+{"case_id":"retrieval_034","query":"virtual context management operating system LLM agents memory","gold_arxiv_ids":["2310.08560"]}
+{"case_id":"retrieval_035","query":"browser assisted question answering with human feedback WebGPT","gold_arxiv_ids":["2112.09332"]}
+{"case_id":"retrieval_036","query":"instruction following language models human feedback","gold_arxiv_ids":["2203.02155"]}
+{"case_id":"retrieval_037","query":"deep reinforcement learning from human preferences","gold_arxiv_ids":["1706.03741"]}
+{"case_id":"retrieval_038","query":"simple contrastive learning sentence embeddings SimCSE","gold_arxiv_ids":["2104.08821"]}
+{"case_id":"retrieval_039","query":"late interaction efficient passage retrieval ColBERT","gold_arxiv_ids":["2004.12832"]}
+{"case_id":"retrieval_040","query":"dense passage retrieval open domain question answering","gold_arxiv_ids":["2004.04906"]}

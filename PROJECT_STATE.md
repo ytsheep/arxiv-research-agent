@@ -969,3 +969,260 @@ Redis:
 4. Redis 不可用时，系统保持可运行。
 5. 所有 Phase 1-10 核心功能不回退。
 ```
+## 19. Lightweight Evaluation Suite - Completed
+
+### 19.1 Scope
+
+[x] Intent recognition and Skill/Tool dispatch evaluation
+[x] arXiv retrieval Recall@3 evaluation
+[x] Local PDF parse accuracy evaluation
+[x] Per-run latency and provider-reported LLM token usage
+
+### 19.2 Test Data
+
+[x] 60 Agent routing and dispatch cases, including ambiguous and abnormal requests
+[x] 40 arXiv retrieval cases
+[x] 30 local PDF parsing cases generated from 3 existing source PDFs
+
+### 19.3 Implementation
+
+[x] Added `backend/evaluation/run_eval.py`
+[x] Added `backend/evaluation/generate_pdf_cases.py`
+[x] Added JSONL test cases under `backend/evaluation/cases/`
+[x] Added JSONL and JSON results under `backend/evaluation/outputs/`
+[x] Added provider-reported token usage accumulation to `LLMClient`
+[x] Added per-stage LLM token usage attribution
+[x] Split Single-Agent and Multi-Agent routing/planning latency and token metrics
+[x] PDF evaluation reparses each source PDF before validating generated `parsed.md`
+
+### 19.4 Latest Result
+
+```text
+Intent Accuracy:               91.67%
+Dispatch Accuracy:             91.67%
+Single-Agent Avg Latency:       0.21 ms
+Single-Agent Avg Tokens:        0.00
+Multi-Agent Avg Latency:     6065.52 ms
+Multi-Agent Avg Tokens:      1069.10
+Multi-Agent Main Token Stage: supervisor_planning (100%)
+Retrieval API Success Rate:   100.00%
+Retrieval Recall@3:            42.50%
+PDF Parse Accuracy:           100.00%
+PDF Avg Document Parse:      1045.74 ms
+Total Runs:                   130
+Total Tokens:               10691
+```
+
+Recall@3 is calculated over successful arXiv API responses. External API
+failures are reported separately and do not count as relevance misses.
+Agent latency and token metrics cover routing and planning only, not complete
+end-to-end workflow execution.
+
+### 19.5 Intent And Dispatch Optimization
+
+[x] Specific compare/deep-read/library intents override generic paper-search matches
+[x] Context references resolve paper IDs from `last_papers`
+[x] Context comparison fills both arXiv IDs from recent paper results
+[x] Local library search maps to the registered `library_search_papers` Tool
+[x] ReAct fallback uses strict arguments for compare, deep-read, and library search
+[x] Replaced all pure-English Agent evaluation questions with Chinese equivalents
+
+### 19.6 Current Failure Coverage
+
+[x] Ambiguous context comparison can expose missing paper references
+[x] Local-library wording can be confused with external paper search
+[x] Trace lookup and trace diagnosis boundaries are evaluated separately
+[x] Negative preference statements test memory-profile routing
+[x] Compound workflows verify all required downstream Skills/Tools are dispatched
+[x] Retrieval evaluation retries HTTP 429 and records API success rate separately
+
+### 19.7 PDF Parse Accuracy Fix
+
+[x] Increased PDF test samples from 15 to 30
+[x] Removed per-section 5000-character truncation
+[x] Removed final-section 10000-character truncation
+[x] Removed reference-section 8000-character truncation
+[x] Preserved document content before the first detected heading
+[x] Prevented duplicate reference content in generated `parsed.md`
+[x] Normalized line-break hyphenation and deterministic reading order
+[x] Replaced brittle arbitrary-character snippets with normalized 24-token windows
+
+### 19.8 Token Attribution
+
+[x] LLM usage is grouped by execution stage in `usage_by_stage`
+[x] Supervisor planning, ReAct planning, card summary, comparison, selection,
+    survey, final composition, and deep report calls have stage labels
+[x] `chat_json` returns both `content` and compatibility `data`, preventing valid
+    Supervisor plans from being discarded before rule fallback
+
+### 19.9 Full-Chain Agent Evaluation
+
+[x] Added `backend/evaluation/run_e2e_agent_eval.py`
+[x] Added 3 representative full-chain cases with a 90-second per-case timeout
+[x] Full-chain benchmark starts from `AgentOrchestrator.handle_chat()`
+[x] Reuses one Orchestrator to avoid repeated client and model initialization
+[x] Reports latency, provider token usage, LLM stage usage, and Skill usage
+
+Latest full-chain result:
+
+```text
+Single-Agent cases:               2/2 completed
+Single-Agent average latency:     39.91 s
+Single-Agent average tokens:    2965.50
+
+Multi-Agent cases:                1/1 completed
+Multi-Agent average latency:      26.73 s
+Multi-Agent average tokens:     3453.00
+
+Overall cases:                    3/3 completed
+Overall average latency:          35.52 s
+Overall total tokens:             9384
+```
+
+Token usage by Skill:
+
+```text
+paper_deep_read_skill:           3696
+paper_search_card_skill:         2770
+paper_compare_skill:              981
+ControlledReAct:                  891
+Supervisor:                       796
+FinalComposer:                    250
+```
+
+Full-chain issues found and fixed:
+
+```text
+1. ReAct repeated an already-successful deep-read Skill until max_steps.
+2. LLM task dependencies such as task_1.papers were not normalized to task_1.
+3. Reviewer retry incorrectly routed back to Supervisor planning.
+4. Retry counters were reset during replanning, causing unbounded loops.
+5. Executor added top_n/candidate_k to Skills that did not accept them.
+6. Natural-language topic extraction truncated or replaced valid topics.
+7. Multi-Agent memory persistence omitted required trace_id and user_message.
+```
+
+Current execution limits:
+
+```text
+End-to-end evaluation timeout: 90 seconds per case
+Multi-Agent max retries:        1
+Multi-Agent max replans:        1
+```
+
+Run the full evaluation:
+
+```text
+cd backend
+python evaluation/run_eval.py --type all
+```
+
+Run the full-chain Agent evaluation:
+
+```text
+cd backend
+python evaluation/run_e2e_agent_eval.py
+```
+
+### 19.10 Ten-Case Full-Chain Evaluation
+
+[x] Expanded the full-chain set to 4 Single-Agent and 6 Multi-Agent cases
+[x] Multi-Agent cases cover 2-task, 3-task, and 4-task workflows
+[x] Each case uses a 90-second timeout
+[x] Fixed explicit arXiv-ID comparison being routed to clarification
+[x] Preserved Supervisor-resolved topics when invoking the paper search Skill
+[x] Preserved cold-start metadata for timeout and failure rows
+
+Latest result:
+
+```text
+Single-Agent completion:          4/4 (100%)
+Single-Agent average latency:     25.28 s
+Single-Agent average tokens:    3032.25
+
+Multi-Agent completion:           3/6 (50%)
+Multi-Agent task-count accuracy:  6/6 (100%)
+Multi-Agent average latency:      30.05 s
+Multi-Agent average tokens:     3589.00
+
+Overall completion:               7/10 (70%)
+Overall task-count accuracy:      10/10 (100%)
+Overall average latency:          28.15 s
+Overall total tokens:             33663
+
+BGE-M3 cold search latency:       46.55 s
+BGE-M3 warm search latency:       13.35 s
+```
+
+The three incomplete Multi-Agent workflows were planned correctly but their
+Chinese-only topics returned zero arXiv candidates. Each search retried once
+and then returned a controlled `partial_final`, so dependent compare, select,
+or survey tasks could not run.
+
+### 19.11 Long-Running Chat Request Fix
+
+[x] Confirmed `/api/chat` is a synchronous long-running request
+[x] Identified the frontend global Axios 30-second timeout as the cause of early failure messages
+[x] Added a chat-specific 180-second timeout while preserving the 30-second default for other APIs
+[x] Added separate messages for connection failure, server error, and chat timeout
+[x] Removed three unused frontend imports that blocked the production build
+[x] Verified the frontend remains connected beyond 30 seconds and renders the final Multi-Agent result
+
+Verification:
+
+```text
+Original user workflow trace: trace_20260615_134136_7f6841
+Original workflow status:      success
+Original workflow duration:    79 seconds
+Original workflow tasks:       search -> compare -> select best -> deep read
+
+Browser verification trace:    trace_20260615_135622_6768cb
+Frontend behavior:             remained waiting after 30 seconds and rendered final response
+Frontend production build:     passed
+```
+
+### 19.12 BGE-M3 Startup Warmup And SSE Progress
+
+[x] BGE-M3 now loads and runs one embedding inference during FastAPI lifespan startup
+[x] Added embedding runtime states: not_loaded, loading, ready, degraded, disabled
+[x] BGE-M3 warmup failure keeps the backend available through the existing TF-IDF fallback
+[x] `/api/health` now reports embedding model status and warmup duration
+[x] Added asynchronous chat task submission while preserving synchronous `/api/chat`
+[x] Added SSE progress streaming backed by real LangGraph node state changes
+[x] Added 15-second SSE heartbeat events for long-running Agent Skills
+[x] Added task result lookup and in-process Last-Event-ID replay support
+[x] Frontend now updates one streaming Assistant message with workflow stages
+[x] Final SSE event replaces the streaming message with the final response and paper cards
+
+New APIs:
+
+```text
+POST /api/chat/tasks
+GET  /api/chat/tasks/{trace_id}/events
+GET  /api/chat/tasks/{trace_id}/result
+```
+
+Latest verification:
+
+```text
+BGE-M3 startup warmup:          ready in 29.88 seconds
+First request BGE cold load:    removed from user request path
+
+Multi-Agent SSE trace:          trace_20260615_143233_bbd899
+Multi-Agent workflow:           search -> compare
+SSE stage events:               13
+Empty task events:              0
+Final SSE event:                workflow.completed
+Final papers:                   2
+
+Sync API compatibility trace:   trace_20260615_143320_4ad17e
+Sync API result:                comparison_result, success
+Frontend stream trace:          trace_20260615_143348_faa21b
+Frontend production build:      passed
+```
+
+Current SSE implementation uses a bounded in-process event history and is
+appropriate for the current single-worker interview deployment. LangGraph
+Checkpointer remains the durable workflow state source. A future multi-worker
+deployment should replace the real-time event bus with Redis Pub/Sub or Redis
+Streams while keeping the same SSE API contract.

@@ -14,6 +14,9 @@ from app.db.database import init_db
 from app.jobs.scheduler import start_scheduler, shutdown_scheduler
 from app.core.logging import logger
 from app.agent.shared import orchestrator
+from app.services.progress_event_service import progress_event_service
+from app.tools.local_embedding import get_status as get_embedding_status
+from app.tools.local_embedding import warmup as warmup_embedding
 
 
 @asynccontextmanager
@@ -21,10 +24,12 @@ async def lifespan(app: FastAPI):
     logger.info("Starting arXiv Paper Agent...")
     await init_db()
     logger.info("Database initialized")
+    await warmup_embedding()
     await start_scheduler()
     logger.info("Scheduler started")
     yield
     shutdown_scheduler()
+    await progress_event_service.close()
     await orchestrator.close()
     logger.info("Shutting down...")
 
@@ -54,4 +59,8 @@ app.include_router(settings_router)
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok", "version": "0.1.0"}
+    return {
+        "status": "ok",
+        "version": "0.1.0",
+        "embedding": get_embedding_status(),
+    }

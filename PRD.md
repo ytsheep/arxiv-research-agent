@@ -1115,3 +1115,272 @@ The implementation is complete only when these user tasks work:
 ```
 
 Every task must return a trace_id and must be visible in the Trace page.
+
+---
+
+## 17. Multi-Agent Workflow And Redis Cache Requirements
+
+### 17.1 Goal
+
+Add a lightweight multi-Agent workflow layer for compound research tasks.
+The goal is to support requests that contain several dependent actions in one
+message, for example:
+
+```text
+帮我找两篇 RAG 相关论文，并且对比两论文的优缺点，最后把好的那篇收藏，并解析
+```
+
+The system should not treat this as one flat intent. It should decompose the
+request into a task plan, execute each task in dependency order, review each
+task result, and continue until all required user goals are completed or a safe
+partial result is returned.
+
+### 17.2 Multi-Agent Scope
+
+Implement a LangGraph-driven multi-Agent workflow:
+
+```text
+FastAPI Chat API
+-> LangGraph Multi-Agent Workflow
+-> Supervisor Agent
+-> WorkflowState Message Bus
+-> Executor Agent
+-> Skill / Tool Registry
+-> Reviewer Agent
+-> Final Response
+```
+
+Agent responsibilities:
+
+```text
+Supervisor Agent:
+  Plans compound tasks, builds task_plan, dispatches ready tasks, and replans if needed.
+
+Executor Agent:
+  Executes one assigned task at a time through deterministic Skill/Tool routing.
+
+Reviewer Agent:
+  Checks required outputs, completion criteria, retry/replan decisions, and final response readiness.
+```
+
+Executor must not run another free-form ReAct loop. It should use a deterministic
+task_type to Skill/Tool mapping to keep execution stable.
+
+### 17.3 Supported Compound Tasks
+
+The first version must support these task types:
+
+```text
+search_papers
+recommend_by_interest
+compare_papers
+select_best_paper
+collect_paper
+deep_read_paper
+literature_survey
+library_search
+trace_diagnosis
+memory_profile
+final_summary
+```
+
+Required example flow:
+
+```text
+User:
+  帮我找两篇 RAG 相关论文，并且对比两论文的优缺点，最后把好的那篇收藏，并解析
+
+Task plan:
+  t1 search_papers
+  t2 compare_papers
+  t3 select_best_paper
+  t4 collect_paper
+  t5 deep_read_paper
+  t6 final_summary
+```
+
+### 17.4 Task Plan Requirements
+
+Supervisor must output a structured task plan with:
+
+```text
+task_id
+task_type
+description
+depends_on
+input_refs
+expected_outputs
+completion_criteria
+status
+retry_count
+```
+
+Task outputs must be stored by task_id. Later tasks must consume prior outputs
+from WorkflowState instead of re-parsing natural language.
+
+Example output references:
+
+```text
+t2 compare_papers reads t1.papers
+t3 select_best_paper reads t1.papers and t2.comparison
+t4 collect_paper reads t3.selected_paper
+t5 deep_read_paper reads t3.selected_paper
+```
+
+### 17.5 New Skill Requirement
+
+Add one high-level Skill:
+
+```text
+paper_select_best_skill
+```
+
+Purpose:
+
+```text
+Select the best paper from candidate papers based on comparison result,
+user preferences, task goal, and paper card metadata.
+```
+
+Inputs:
+
+```text
+papers
+comparison
+user_preferences
+user_message
+```
+
+Outputs:
+
+```text
+selected_paper
+selection_reason
+tradeoff_summary
+```
+
+The Skill should use LLM when available and deterministic scoring fallback when
+LLM is unavailable.
+
+### 17.6 Existing Skill Adjustment
+
+Update paper_compare_skill to support both input modes:
+
+```text
+1. arxiv_ids: compare papers already known in local library.
+2. papers: compare freshly searched paper cards using title, abstract, summary,
+   core_problem, method, and result.
+```
+
+When local reports exist, the Skill may enrich comparison with report snippets.
+If reports do not exist, it must still produce a metadata/card-level comparison.
+
+### 17.7 Redis Cache Requirements
+
+Add Redis only for high-value, low-complexity caching. Redis must not replace
+SQLite, file storage, semantic memory, or LangGraph Checkpointer.
+
+Required cache points:
+
+```text
+1. arXiv search result cache
+2. Embedding / Rerank cache
+3. Workflow lightweight state cache
+```
+
+#### arXiv Search Cache
+
+Cache normalized arXiv search results.
+
+```text
+Key:
+  arxiv:search:{hash(normalized_query + candidate_k)}
+
+Value:
+  JSON list of arXiv paper metadata
+
+TTL:
+  30 minutes to 6 hours
+```
+
+Acceptance criteria:
+
+```text
+Repeated same query should hit Redis and avoid another arXiv API request.
+Cache miss should fall back to normal arXiv API call.
+Redis unavailable should not break search.
+```
+
+#### Embedding / Rerank Cache
+
+Cache expensive semantic and rerank intermediate results.
+
+```text
+Embedding key:
+  embedding:{hash(text)}
+
+Rerank key:
+  rerank:{hash(query + paper_ids + preference_version)}
+
+TTL:
+  embedding 7 to 30 days
+  rerank 30 minutes to 2 hours
+```
+
+Acceptance criteria:
+
+```text
+Repeated embedding text should reuse cached vector.
+Repeated rerank with same query, candidates, and preference_version should reuse cached ranking.
+User preference update must change preference_version or invalidate related rerank cache.
+Embedding/Rerank must keep existing TF-IDF fallback behavior.
+```
+
+#### Workflow Lightweight State Cache
+
+Cache lightweight workflow progress for frontend progress polling and quick status lookup.
+
+```text
+Key:
+  workflow:state:{workflow_id}
+
+Value:
+  workflow_id
+  trace_id
+  current_task_id
+  task_plan summary
+  completed_tasks
+  failed_tasks
+  last_review_decision
+  status
+
+TTL:
+  1 to 24 hours
+```
+
+Acceptance criteria:
+
+```text
+LangGraph Checkpointer remains the state source of truth.
+Redis stores only lightweight progress projection.
+If Redis is unavailable, backend reads from Checkpointer/TraceProjection.
+```
+
+### 17.8 Verification Requirements For Claude Code
+
+After implementation, Claude Code must run a full verification pass:
+
+```text
+1. Backend can start without Redis when Redis is disabled or unavailable.
+2. Backend can use Redis when REDIS_URL is configured.
+3. Frontend can start and existing pages do not white-screen.
+4. Existing simple paper search still works.
+5. Existing collect, parse, library, report, trace, settings, subscription pages still work.
+6. Compound request search -> compare -> select_best -> collect -> deep_read completes or returns safe partial result.
+7. Reviewer correctly prevents final response until required task outputs are present.
+8. Redis arXiv cache hit/miss works.
+9. Redis embedding/rerank cache hit/miss works.
+10. Redis workflow lightweight state can be queried and does not replace Checkpointer.
+11. Tool Registry still blocks forbidden subscription/notification autonomous calls.
+12. Trace timeline shows multi-Agent plan, task result, review decision, retry/replan/final events.
+```

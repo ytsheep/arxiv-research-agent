@@ -62,6 +62,7 @@ class ReportTool:
                 {"role": "user", "content": prompt},
             ],
             max_tokens=800,
+            usage_stage="paper_card_summary",
         )
 
         if result["success"]:
@@ -301,6 +302,7 @@ class ReportTool:
             ],
             max_tokens=4096,
             temperature=0.3,
+            usage_stage="paper_deep_report",
         )
 
         if result["success"]:

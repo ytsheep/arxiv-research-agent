@@ -21,6 +21,8 @@ export interface ChatMessage {
   papers?: PaperCardItem[]
   traceId?: string
   timestamp: string
+  streaming?: boolean
+  progress?: ChatProgressEvent[]
   metadata?: {
     comparison?: any
     selected_paper?: PaperCardItem
@@ -28,6 +30,18 @@ export interface ChatMessage {
     report_markdown?: string
     task_summary?: TaskSummaryItem[]
   }
+}
+
+export interface ChatProgressEvent {
+  eventId: string
+  eventType: string
+  agent: string
+  node: string
+  taskId: string
+  taskType: string
+  status: string
+  message: string
+  timestamp: string
 }
 
 export interface ChatRequest {
@@ -44,6 +58,14 @@ export interface ChatResponse {
   metadata?: Record<string, any>
   error_code?: string
   detail?: string
+}
+
+export interface ChatTaskAccepted {
+  success: boolean
+  trace_id: string
+  status: string
+  stream_url: string
+  result_url: string
 }
 
 export interface ComparisonResult {
